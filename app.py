@@ -44,27 +44,24 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
-import os
-import streamlit as st
-import firebase_admin
-from firebase_admin import credentials, firestore
 
-# ==================== PATH SETUP ====================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CRED_PATH = os.path.join(BASE_DIR, "service_account.json")
 
 # ==================== FIREBASE INITIALIZATION ====================
 @st.cache_resource
 def initialize_firebase():
-    if not firebase_admin._apps:
-        cred = credentials.Certificate(CRED_PATH)
-        firebase_admin.initialize_app(cred)
-    return firestore.client()
+    """Initialize Firebase connection"""
+    try:
+        if not firebase_admin._apps:
+            cred = credentials.Certificate('service_account.json')
+            firebase_admin.initialize_app(cred)
+        db = firestore.client()
+        return db
+    except Exception as e:
+        st.error(f"Failed to initialize Firebase: {str(e)}")
+        st.info("Please ensure 'service_account.json' is in the project directory")
+        return None
 
-# ==================== GET DATABASE INSTANCE ====================
 db = initialize_firebase()
-
-
 
 
 # ==================== UPDATED SCHOOL CONFIGURATION ====================
@@ -4209,7 +4206,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
-
-
