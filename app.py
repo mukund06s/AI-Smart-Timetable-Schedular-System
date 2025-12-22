@@ -44,7 +44,14 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
+import os
+from firebase_admin import credentials, initialize_app
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+cred_path = os.path.join(BASE_DIR, "service_account.json")
+
+cred = credentials.Certificate(cred_path)
+initialize_app(cred)
 
 # ==================== FIREBASE INITIALIZATION ====================
 @st.cache_resource
@@ -4206,4 +4213,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
