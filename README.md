@@ -93,13 +93,21 @@ Architecture: MERN Stack (Enterprise-ready)
 
 📁 Project Structure
 ai-smart-classroom-timetable-system/
+
 ├── Main App/
+
 │   ├── app.py                    # Main Streamlit application
+
 │   ├── genetic_algorithm.py      # AI scheduling engine
+
 ├── Datasets/                     # Sample / demo datasets (optional)
+
 ├── requirements.txt              # Python dependencies
+
 ├── service_account.example.json  # Firebase config template
+
 ├── .gitignore
+
 └── README.md
 
 
