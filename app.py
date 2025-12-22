@@ -51,7 +51,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 cred_path = os.path.join(BASE_DIR, "service_account.json")
 
 cred = credentials.Certificate(cred_path)
-initialize_app(cred)
+#initialize_app(cred)
 
 # ==================== FIREBASE INITIALIZATION ====================
 @st.cache_resource
@@ -61,7 +61,7 @@ def initialize_firebase():
         if not firebase_admin._apps:
             cred = credentials.Certificate('service_account.json')
             firebase_admin.initialize_app(cred)
-        db = firestore.client()
+        db = initialize_firebase()
         return db
     except Exception as e:
         st.error(f"Failed to initialize Firebase: {str(e)}")
@@ -4215,3 +4215,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
