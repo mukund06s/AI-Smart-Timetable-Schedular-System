@@ -58,6 +58,15 @@ def initialize_firebase():
     return firestore.client()
 
 db = initialize_firebase()
+
+st.write("🔥 Firebase test query")
+
+try:
+    test_docs = list(db.collection("programs").limit(5).stream())
+    st.write("Documents found:", len(test_docs))
+except Exception as e:
+    st.error(f"Firestore error: {e}")
+
 # ==================== UPDATED SCHOOL CONFIGURATION ====================
 # CHANGE A.4: Updated semester structure for all programs
 
@@ -4201,4 +4210,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
