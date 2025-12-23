@@ -46,24 +46,18 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 
 
-# ==================== FIREBASE INITIALIZATION ====================
 @st.cache_resource
 def initialize_firebase():
-    """Initialize Firebase connection"""
-    try:
-        if not firebase_admin._apps:
-            cred = credentials.Certificate('service_account.json')
-            firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        return db
-    except Exception as e:
-        st.error(f"Failed to initialize Firebase: {str(e)}")
-        st.info("Please ensure 'service_account.json' is in the project directory")
-        return None
+    if not firebase_admin._apps:
+        firebase_secrets = dict(st.secrets["firebase"])
+        firebase_secrets["private_key"] = firebase_secrets["private_key"].replace("\\n", "\n")
+
+        cred = credentials.Certificate(firebase_secrets)
+        firebase_admin.initialize_app(cred)
+
+    return firestore.client()
 
 db = initialize_firebase()
-
-
 # ==================== UPDATED SCHOOL CONFIGURATION ====================
 # CHANGE A.4: Updated semester structure for all programs
 
@@ -4207,3 +4201,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
