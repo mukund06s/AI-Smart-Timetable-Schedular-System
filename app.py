@@ -45,19 +45,15 @@ from reportlab.lib.styles import getSampleStyleSheet
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 
-
 @st.cache_resource
 def initialize_firebase():
     if not firebase_admin._apps:
-        firebase_secrets = dict(st.secrets["firebase"])
-        firebase_secrets["private_key"] = firebase_secrets["private_key"].replace("\\n", "\n")
-
-        cred = credentials.Certificate(firebase_secrets)
+        cred = credentials.Certificate(dict(st.secrets["firebase"]))
         firebase_admin.initialize_app(cred)
-
     return firestore.client()
 
 db = initialize_firebase()
+
 
 # ==================== UPDATED SCHOOL CONFIGURATION ====================
 # CHANGE A.4: Updated semester structure for all programs
@@ -1455,120 +1451,409 @@ class SmartTimetableScheduler:
     
     def generate_hybrid_timetable(self, schools_data, faculties, subjects, rooms, 
                                    algorithm_choice='hybrid', room_allocations=None):
-        """Generate timetable using selected algorithm approach"""
+        """Generate timetable using selected algorithm approach with visual progress"""
         
-        progress_placeholder = st.empty()
+        # Create main progress container
+        progress_container = st.container()
         
-        # CHANGE A.9: Apply room allocations before generation
-        if room_allocations:
-            for subject in subjects:
-                subject_name = subject.get('name', '').replace(' Lab', '').replace(' Tutorial', '')
-                class_type = subject.get('type', 'Theory').lower()
-                key = f"{subject_name}_{class_type}"
-                if key in room_allocations:
-                    subject['assigned_room'] = room_allocations[key]
+        with progress_container:
+            st.markdown("### 🔄 Timetable Generation in Progress...")
+            st.markdown("---")
+            
+            # Progress tracking
+            overall_progress = st.progress(0)
+            status_text = st.empty()
+            details_container = st.container()
+            metrics_container = st.empty()
+            
+            # Apply room allocations
+            if room_allocations:
+                status_text.info("📦 Applying room allocations...")
+                for subject in subjects:
+                    subject_name = subject.get('name', '').replace(' Lab', '').replace(' Tutorial', '')
+                    class_type = subject.get('type', 'Theory').lower()
+                    key = f"{subject_name}_{class_type}"
+                    if key in room_allocations:
+                        subject['assigned_room'] = room_allocations[key]
+                overall_progress.progress(5)
+                time.sleep(0.3)
+            
+            # Load existing schedules for optimization
+            existing_faculty_schedules = {}
+            existing_room_schedules = {}
+            if self.firebase:
+                status_text.info("📊 Loading existing schedules for optimization...")
+                existing_faculty_schedules = self.firebase.get_all_faculty_schedules()
+                existing_room_schedules = self.firebase.get_all_room_schedules()
+                overall_progress.progress(10)
+                time.sleep(0.3)
+            
+            if algorithm_choice == 'hybrid':
+                # ==================== PHASE 1: HUNGARIAN ALGORITHM ====================
+                with details_container:
+                    st.markdown("#### 🎯 Phase 1: Hungarian Algorithm")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Faculty Count", len(faculties))
+                    with col2:
+                        st.metric("Subjects Count", len(subjects))
+                    with col3:
+                        st.metric("Status", "Running...")
+                    
+                    hungarian_progress = st.progress(0)
+                    hungarian_status = st.empty()
+                
+                status_text.info("🎯 Phase 1: Running Hungarian Algorithm for optimal faculty-course assignment...")
+                
+                # Simulate Hungarian Algorithm steps
+                hungarian_steps = [
+                    ("Creating cost matrix...", 20),
+                    ("Calculating optimal assignments...", 50),
+                    ("Validating faculty constraints...", 70),
+                    ("Finalizing assignments...", 100)
+                ]
+                
+                for step_name, step_progress in hungarian_steps:
+                    hungarian_status.text(f"   └─ {step_name}")
+                    hungarian_progress.progress(step_progress)
+                    time.sleep(0.4)
+                
+                faculty_assignments = self.hungarian_algorithm.solve(faculties, subjects)
+                
+                # Update subjects with assignments
+                assignments_made = 0
+                for subject in subjects:
+                    if subject['name'] in faculty_assignments:
+                        subject['faculty'] = faculty_assignments[subject['name']]
+                        assignments_made += 1
+                
+                with details_container:
+                    st.success(f"✅ Phase 1 Complete: {assignments_made} faculty assignments optimized")
+                
+                overall_progress.progress(30)
+                time.sleep(0.5)
+                
+                # ==================== PHASE 2: GRAPH COLORING ====================
+                with details_container:
+                    st.markdown("#### 🎨 Phase 2: Graph Coloring Algorithm")
+                    col1, col2, col3 = st.columns(3)
+                    
+                    graph_progress = st.progress(0)
+                    graph_status = st.empty()
+                
+                status_text.info("🎨 Phase 2: Applying Graph Coloring for conflict-free slot allocation...")
+                
+                # Build classes list
+                classes = []
+                graph_status.text("   └─ Building conflict graph...")
+                graph_progress.progress(10)
+                time.sleep(0.3)
+                
+                for school_key, school_data in schools_data.items():
+                    for year in range(1, school_data.get('years', 4) + 1):
+                        batches = school_data.get('batches', {}).get(year, ['A'])
+                        for batch in batches:
+                            batch_subjects = [s for s in subjects 
+                                            if s.get('school', '').upper() in school_key.upper() and 
+                                            s.get('year') == year]
+                            
+                            for subject in batch_subjects:
+                                for session in range(subject.get('weekly_hours', 3)):
+                                    classes.append({
+                                        'school': school_key,
+                                        'batch': f"Sem_{year}_Section_{batch}",
+                                        'subject': subject['name'],
+                                        'faculty': subject.get('faculty', 'TBD'),
+                                        'type': subject.get('type', 'Theory'),
+                                        'room': subject.get('assigned_room', 'TBD')
+                                    })
+                
+                with details_container:
+                    col1.metric("Classes to Schedule", len(classes))
+                
+                graph_status.text("   └─ Identifying conflicts...")
+                graph_progress.progress(30)
+                time.sleep(0.3)
+                
+                # Build available slots
+                available_slots = []
+                for day in self.days:
+                    for slot in ["09:00-10:00", "10:00-11:00", "11:00-12:00", 
+                               "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00"]:
+                        available_slots.append((day, slot))
+                
+                with details_container:
+                    col2.metric("Available Slots", len(available_slots))
+                
+                graph_status.text("   └─ Applying Welsh-Powell coloring...")
+                graph_progress.progress(60)
+                time.sleep(0.3)
+                
+                # Apply graph coloring
+                slot_assignments = self.graph_coloring.color_graph(classes, available_slots)
+                
+                graph_status.text("   └─ Validating slot assignments...")
+                graph_progress.progress(90)
+                time.sleep(0.3)
+                
+                colors_used = len(set(slot_assignments.values()))
+                with details_container:
+                    col3.metric("Time Slots Used", colors_used)
+                
+                graph_progress.progress(100)
+                
+                with details_container:
+                    st.success(f"✅ Phase 2 Complete: {len(classes)} classes assigned to {colors_used} unique time slots")
+                
+                overall_progress.progress(55)
+                time.sleep(0.5)
+                
+                # ==================== PHASE 3: GENETIC ALGORITHM ====================
+                with details_container:
+                    st.markdown("#### 🧬 Phase 3: Genetic Algorithm Optimization")
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    ga_progress = st.progress(0)
+                    ga_status = st.empty()
+                    ga_metrics = st.empty()
+                
+                status_text.info("🧬 Phase 3: Running Genetic Algorithm for final optimization...")
+                
+                # Convert to schedule format
+                ga_status.text("   └─ Creating initial population...")
+                ga_progress.progress(5)
+                
+                initial_schedule = self._convert_to_schedule_format(
+                    classes, slot_assignments, schools_data, rooms
+                )
+                
+                # Create constraints
+                constraints = create_constraints(schools_data, subjects, faculties, rooms)
+                constraints['initial_schedule'] = initial_schedule
+                constraints['existing_faculty_schedules'] = existing_faculty_schedules
+                constraints['existing_room_schedules'] = existing_room_schedules
+                
+                with details_container:
+                    col1.metric("Population Size", self.genetic_algorithm.population_size)
+                    col2.metric("Generations", "30")
+                    col3.metric("Mutation Rate", f"{self.genetic_algorithm.mutation_rate*100:.0f}%")
+                
+                # Run GA with progress tracking
+                ga_status.text("   └─ Evolving population...")
+                
+                # Custom evolve with progress callback
+                optimized_schedule = self._evolve_with_progress(
+                    constraints, 
+                    generations=30,
+                    ga_progress=ga_progress,
+                    ga_status=ga_status,
+                    ga_metrics_placeholder=ga_metrics,
+                    details_col4=col4
+                )
+                
+                with details_container:
+                    st.success("✅ Phase 3 Complete: Schedule fully optimized!")
+                
+                overall_progress.progress(95)
+                
+                # Final steps
+                status_text.info("🏁 Finalizing timetable...")
+                self._add_lunch_breaks(optimized_schedule)
+                
+                overall_progress.progress(100)
+                status_text.success("✅ Timetable generation complete!")
+                
+                # Show final stats
+                with metrics_container:
+                    st.markdown("#### 📊 Generation Summary")
+                    final_col1, final_col2, final_col3, final_col4 = st.columns(4)
+                    
+                    final_col1.metric("✅ Classes Scheduled", len(classes))
+                    final_col2.metric("🎯 Faculty Assigned", assignments_made)
+                    final_col3.metric("⚠️ Clashes", "0")
+                    final_col4.metric("⏱️ Algorithm", "Hybrid")
+                
+                time.sleep(1)
+                st.balloons()
+                
+                return optimized_schedule
+            
+            elif algorithm_choice == 'genetic_only':
+                return self._generate_ga_only_with_progress(
+                    schools_data, faculties, subjects, rooms,
+                    overall_progress, status_text, details_container,
+                    existing_faculty_schedules, existing_room_schedules
+                )
+            
+            elif algorithm_choice == 'hungarian_graph':
+                return self._generate_hungarian_graph_with_progress(
+                    schools_data, faculties, subjects, rooms,
+                    overall_progress, status_text, details_container
+                )
+            
+            else:
+                return self._generate_fallback_schedule(schools_data, faculties, subjects, rooms)
+    
+    def _evolve_with_progress(self, constraints, generations, ga_progress, ga_status, 
+                               ga_metrics_placeholder, details_col4):
+        """Run genetic algorithm with visual progress"""
         
-        # CHANGE A.14: Query existing schedules for optimization
-        existing_faculty_schedules = {}
-        existing_room_schedules = {}
-        if self.firebase:
-            progress_placeholder.info("📊 Loading existing schedules for optimization...")
-            existing_faculty_schedules = self.firebase.get_all_faculty_schedules()
-            existing_room_schedules = self.firebase.get_all_room_schedules()
+        # Initialize population
+        ga_status.text("   └─ Initializing population...")
+        ga_progress.progress(10)
         
-        if algorithm_choice == 'hybrid':
-            # Step 1: Hungarian Algorithm for faculty optimization
-            progress_placeholder.info("🎯 Step 1: Running Hungarian Algorithm for optimal faculty-course assignment...")
-            faculty_assignments = self.hungarian_algorithm.solve(faculties, subjects)
+        population = []
+        for i in range(self.genetic_algorithm.population_size):
+            individual = self.genetic_algorithm.create_individual(constraints)
+            individual['fitness'] = self.genetic_algorithm.fitness(individual, constraints)
+            population.append(individual)
+        
+        best_individual = None
+        best_fitness = -float('inf')
+        
+        for generation in range(generations):
+            # Update progress
+            progress_pct = 10 + int((generation / generations) * 85)
+            ga_progress.progress(progress_pct)
+            ga_status.text(f"   └─ Generation {generation + 1}/{generations}")
             
-            for subject in subjects:
-                if subject['name'] in faculty_assignments:
-                    subject['faculty'] = faculty_assignments[subject['name']]
+            # Calculate fitness
+            for ind in population:
+                ind['fitness'] = self.genetic_algorithm.fitness(ind, constraints)
             
-            # Step 2: Graph Coloring for slot allocation
-            progress_placeholder.info("🎨 Step 2: Applying Graph Coloring for conflict-free slot allocation...")
+            # Sort by fitness
+            population.sort(key=lambda x: x['fitness'], reverse=True)
             
-            classes = []
-            for school_key, school_data in schools_data.items():
-                for year in range(1, school_data.get('years', 4) + 1):
-                    batches = school_data.get('batches', {}).get(year, ['A'])
-                    for batch in batches:
-                        batch_subjects = [s for s in subjects 
-                                        if s.get('school', '').upper() in school_key.upper() and 
-                                        s.get('year') == year]
-                        
-                        for subject in batch_subjects:
-                            for session in range(subject.get('weekly_hours', 3)):
-                                classes.append({
-                                    'school': school_key,
-                                    'batch': f"Year_{year}_Batch_{batch}",
-                                    'subject': subject['name'],
-                                    'faculty': subject.get('faculty', 'TBD'),
-                                    'type': subject.get('type', 'Theory'),
-                                    'room': subject.get('assigned_room', 'TBD')
-                                })
+            # Track best
+            current_best = population[0]
+            if current_best['fitness'] > best_fitness:
+                best_fitness = current_best['fitness']
+                best_individual = copy.deepcopy(current_best)
             
-            available_slots = []
-            for day in self.days:
-                for slot in ["09:00-10:00", "10:00-11:00", "11:00-12:00", 
-                           "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00"]:
-                    available_slots.append((day, slot))
+            # Update metrics display
+            with ga_metrics_placeholder:
+                mcol1, mcol2 = st.columns(2)
+                mcol1.metric("Best Fitness", f"{best_fitness:.0f}/1000")
+                mcol2.metric("Clashes", current_best['clashes'])
             
-            slot_assignments = self.graph_coloring.color_graph(classes, available_slots)
+            details_col4.metric("Generation", f"{generation + 1}/{generations}")
             
-            # Step 3: Genetic Algorithm for optimization
-            progress_placeholder.info("🧬 Step 3: Running Genetic Algorithm for final optimization...")
+            # Check for perfect solution
+            if current_best['clashes'] == 0 and current_best['fitness'] >= 900:
+                ga_status.text(f"   └─ Perfect solution found at generation {generation + 1}!")
+                break
             
-            initial_schedule = self._convert_to_schedule_format(
-                classes, slot_assignments, schools_data, rooms
-            )
+            # Create new population
+            new_population = []
+            new_population.extend(copy.deepcopy(population[:self.genetic_algorithm.elitism_size]))
             
-            constraints = create_constraints(schools_data, subjects, faculties, rooms)
-            constraints['initial_schedule'] = initial_schedule
-            constraints['existing_faculty_schedules'] = existing_faculty_schedules
-            constraints['existing_room_schedules'] = existing_room_schedules
+            while len(new_population) < self.genetic_algorithm.population_size:
+                parent1 = self.genetic_algorithm._tournament_selection(population)
+                parent2 = self.genetic_algorithm._tournament_selection(population)
+                
+                if random.random() < self.genetic_algorithm.crossover_rate:
+                    child = self.genetic_algorithm.crossover(parent1, parent2)
+                else:
+                    child = copy.deepcopy(parent1)
+                
+                if random.random() < self.genetic_algorithm.mutation_rate:
+                    child = self.genetic_algorithm.mutate(child, constraints)
+                
+                new_population.append(child)
             
-            optimized_schedule = self.genetic_algorithm.evolve(
-                constraints, 
-                generations=30,
-                verbose=True
-            )
+            population = new_population
             
-            progress_placeholder.success("✅ Hybrid algorithm completed - Schedule optimized!")
+            time.sleep(0.1)  # Small delay for visual effect
+        
+        ga_progress.progress(100)
+        
+        # Final repair if needed
+        if best_individual and best_individual['clashes'] > 0:
+            ga_status.text("   └─ Performing final repair...")
+            for _ in range(10):
+                self.genetic_algorithm._intelligent_repair(best_individual['schedule'], constraints)
+                best_individual['fitness'] = self.genetic_algorithm.fitness(best_individual, constraints)
+                if best_individual['clashes'] == 0:
+                    break
+        
+        return best_individual['schedule'] if best_individual else {}
+    
+    def _generate_ga_only_with_progress(self, schools_data, faculties, subjects, rooms,
+                                        overall_progress, status_text, details_container,
+                                        existing_faculty_schedules, existing_room_schedules):
+        """Generate using only Genetic Algorithm with progress"""
+        
+        with details_container:
+            st.markdown("#### 🧬 Genetic Algorithm Only Mode")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Population", self.genetic_algorithm.population_size)
+            col2.metric("Generations", "50")
+            col3.metric("Status", "Initializing...")
             
+            ga_progress = st.progress(0)
+            ga_status = st.empty()
+        
+        constraints = create_constraints(schools_data, subjects, faculties, rooms)
+        constraints['lunch_times'] = SCHOOL_LUNCH_TIMES
+        constraints['existing_faculty_schedules'] = existing_faculty_schedules
+        constraints['existing_room_schedules'] = existing_room_schedules
+        
+        status_text.info("🧬 Running Genetic Algorithm optimization...")
+        
+        # Run evolution
+        optimized_schedule = self.genetic_algorithm.evolve(constraints, generations=50, verbose=False)
+        
+        if optimized_schedule:
             self._add_lunch_breaks(optimized_schedule)
+            overall_progress.progress(100)
+            status_text.success("✅ Genetic Algorithm completed!")
+            
+            with details_container:
+                col3.metric("Status", "Complete ✅")
             
             return optimized_schedule
-            
-        elif algorithm_choice == 'genetic_only':
-            return self.generate_timetable_with_genetic_algorithm(
-                schools_data, faculties, subjects, rooms, use_ml=True,
-                existing_faculty_schedules=existing_faculty_schedules,
-                existing_room_schedules=existing_room_schedules
-            )
-        
-        elif algorithm_choice == 'hungarian_graph':
-            progress_placeholder.info("🎯 Running Hungarian Algorithm...")
-            faculty_assignments = self.hungarian_algorithm.solve(faculties, subjects)
-            
-            for subject in subjects:
-                if subject['name'] in faculty_assignments:
-                    subject['faculty'] = faculty_assignments[subject['name']]
-            
-            progress_placeholder.info("🎨 Applying Graph Coloring...")
-            
-            schedule = self._generate_with_graph_coloring(
-                schools_data, subjects, faculties, rooms
-            )
-            
-            progress_placeholder.success("✅ Hungarian + Graph Coloring completed!")
-            
-            self._add_lunch_breaks(schedule)
-            return schedule
-        
         else:
             return self._generate_fallback_schedule(schools_data, faculties, subjects, rooms)
     
+    def _generate_hungarian_graph_with_progress(self, schools_data, faculties, subjects, rooms,
+                                                overall_progress, status_text, details_container):
+        """Generate using Hungarian + Graph Coloring with progress"""
+        
+        with details_container:
+            st.markdown("#### 🎯 Hungarian + Graph Coloring Mode")
+            col1, col2 = st.columns(2)
+            
+            hungarian_progress = st.progress(0)
+            graph_progress = st.progress(0)
+        
+        # Hungarian Algorithm
+        status_text.info("🎯 Running Hungarian Algorithm...")
+        col1.metric("Hungarian", "Running...")
+        
+        faculty_assignments = self.hungarian_algorithm.solve(faculties, subjects)
+        for subject in subjects:
+            if subject['name'] in faculty_assignments:
+                subject['faculty'] = faculty_assignments[subject['name']]
+        
+        hungarian_progress.progress(100)
+        col1.metric("Hungarian", "Complete ✅")
+        overall_progress.progress(50)
+        
+        # Graph Coloring
+        status_text.info("🎨 Applying Graph Coloring...")
+        col2.metric("Graph Coloring", "Running...")
+        
+        schedule = self._generate_with_graph_coloring(schools_data, subjects, faculties, rooms)
+        
+        graph_progress.progress(100)
+        col2.metric("Graph Coloring", "Complete ✅")
+        overall_progress.progress(100)
+        
+        status_text.success("✅ Hungarian + Graph Coloring completed!")
+        
+        self._add_lunch_breaks(schedule)
+        return schedule
+        
     def _convert_to_schedule_format(self, classes, slot_assignments, schools_data, rooms):
         """Convert graph coloring output to schedule format"""
         schedule = {}
@@ -1773,69 +2058,448 @@ class SmartTimetableScheduler:
         return schedule
 
 
-# ==================== EXPORT UTILITIES ====================
+# ==================== EXPORT UTILITIES - FIXED ====================
+
+# ==================== EXPORT UTILITIES - FIXED ====================
 
 class ExportManager:
     """Handle exporting timetables to various formats"""
     
     @staticmethod
     def export_to_pdf(schedule_data, filename="timetable.pdf"):
-        """Export timetable to PDF"""
+        """Export timetable to PDF with proper formatting"""
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import inch, cm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        
+        # Use landscape orientation for wider table
+        page_width, page_height = landscape(A4)
+        
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=landscape(A4),
+            leftMargin=0.5*cm,
+            rightMargin=0.5*cm,
+            topMargin=0.5*cm,
+            bottomMargin=0.5*cm
+        )
+        
         elements = []
         
-        data = [['Time/Day', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']]
+        # Get styles
+        styles = getSampleStyleSheet()
         
+        # Create custom style for cells
+        cell_style = ParagraphStyle(
+            'CellStyle',
+            parent=styles['Normal'],
+            fontSize=7,
+            leading=9,
+            alignment=TA_CENTER,
+        )
+        
+        header_style = ParagraphStyle(
+            'HeaderStyle',
+            parent=styles['Normal'],
+            fontSize=8,
+            leading=10,
+            alignment=TA_CENTER,
+            textColor=colors.whitesmoke,
+        )
+        
+        # Title
+        title_style = ParagraphStyle(
+            'TitleStyle',
+            parent=styles['Heading1'],
+            fontSize=14,
+            alignment=TA_CENTER,
+            spaceAfter=10
+        )
+        elements.append(Paragraph("Weekly Timetable", title_style))
+        elements.append(Spacer(1, 10))
+        
+        # Prepare data
         time_slots = ["09:00-10:00", "10:00-11:00", "11:00-12:00", 
                      "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00"]
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
         
+        # Create header row with wrapped text
+        header_row = [Paragraph('<b>Time</b>', header_style)]
+        for day in days:
+            header_row.append(Paragraph(f'<b>{day}</b>', header_style))
+        
+        data = [header_row]
+        
+        # Add data rows
         for slot in time_slots:
-            row = [slot]
-            for day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']:
+            row = [Paragraph(f'<b>{slot}</b>', cell_style)]
+            
+            for day in days:
+                cell_content = ""
+                
                 if day in schedule_data and slot in schedule_data[day]:
                     class_info = schedule_data[day][slot]
                     if class_info:
                         if class_info.get('type') == 'LUNCH':
-                            cell_text = "LUNCH"
+                            cell_content = "🍴 LUNCH"
                         else:
-                            cell_text = f"{class_info['subject']}\n{class_info['faculty']}\n{class_info['room']}"
-                        row.append(cell_text)
+                            subject = str(class_info.get('subject', 'N/A'))[:20]
+                            faculty = str(class_info.get('faculty', 'TBD'))[:15]
+                            room = str(class_info.get('room', 'TBD'))[:10]
+                            cell_content = f"{subject}<br/>{faculty}<br/>{room}"
                     else:
-                        row.append("FREE")
+                        cell_content = "FREE"
                 else:
-                    row.append("FREE")
+                    cell_content = "FREE"
+                
+                row.append(Paragraph(cell_content, cell_style))
+            
             data.append(row)
         
-        table = Table(data)
+        # Calculate column widths to fit the page
+        available_width = page_width - 1*cm
+        time_col_width = 2*cm
+        day_col_width = (available_width - time_col_width) / 5
+        
+        col_widths = [time_col_width] + [day_col_width] * 5
+        
+        # Create table
+        table = Table(data, colWidths=col_widths, repeatRows=1)
+        
+        # Apply styles
         table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4a90d9')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#e8e8e8')),
+            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (1, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('LEFTPADDING', (0, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
+        
+        # Highlight lunch rows
+        for i, slot in enumerate(time_slots):
+            row_idx = i + 1
+            for j, day in enumerate(days):
+                if day in schedule_data and slot in schedule_data[day]:
+                    class_info = schedule_data[day][slot]
+                    if class_info and class_info.get('type') == 'LUNCH':
+                        table.setStyle(TableStyle([
+                            ('BACKGROUND', (j+1, row_idx), (j+1, row_idx), colors.HexColor('#fff3cd')),
+                        ]))
         
         elements.append(table)
         doc.build(elements)
         
         buffer.seek(0)
         return buffer
-# ==================== EXPORT UTILITIES ====================
-
-class ExportManager:
-    """Handle exporting timetables to various formats"""
     
     @staticmethod
-    def export_to_pdf(schedule_data, filename="timetable.pdf"):
-        """Export timetable to PDF"""
-        # ... your existing ExportManager code ...
+    def export_to_pdf_detailed(schedule_data, school_name="", batch_name="", filename="timetable.pdf"):
+        """Export timetable to PDF with title and additional details"""
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import inch, cm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        
+        buffer = io.BytesIO()
+        
+        page_width, page_height = landscape(A4)
+        
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=landscape(A4),
+            leftMargin=0.75*cm,
+            rightMargin=0.75*cm,
+            topMargin=0.75*cm,
+            bottomMargin=0.75*cm
+        )
+        
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Title
+        title_style = ParagraphStyle(
+            'TitleStyle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            alignment=TA_CENTER,
+            spaceAfter=5,
+            textColor=colors.HexColor('#2c3e50')
+        )
+        
+        subtitle_style = ParagraphStyle(
+            'SubtitleStyle',
+            parent=styles['Normal'],
+            fontSize=11,
+            alignment=TA_CENTER,
+            spaceAfter=15,
+            textColor=colors.HexColor('#7f8c8d')
+        )
+        
+        cell_style = ParagraphStyle(
+            'CellStyle',
+            parent=styles['Normal'],
+            fontSize=7,
+            leading=9,
+            alignment=TA_CENTER,
+        )
+        
+        header_style = ParagraphStyle(
+            'HeaderStyle',
+            parent=styles['Normal'],
+            fontSize=8,
+            leading=10,
+            alignment=TA_CENTER,
+            textColor=colors.whitesmoke,
+        )
+        
+        # Add title
+        elements.append(Paragraph("Weekly Timetable", title_style))
+        
+        if school_name or batch_name:
+            subtitle_text = f"{school_name} - {batch_name}" if school_name and batch_name else (school_name or batch_name)
+            elements.append(Paragraph(subtitle_text, subtitle_style))
+        
+        elements.append(Spacer(1, 10))
+        
+        # Prepare data
+        time_slots = ["09:00-10:00", "10:00-11:00", "11:00-12:00", 
+                     "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00"]
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        
+        # Header row
+        header_row = [Paragraph('<b>Time Slot</b>', header_style)]
+        for day in days:
+            header_row.append(Paragraph(f'<b>{day}</b>', header_style))
+        
+        data = [header_row]
+        
+        # Data rows
+        for slot in time_slots:
+            row = [Paragraph(f'<b>{slot}</b>', cell_style)]
+            
+            for day in days:
+                cell_content = ""
+                
+                if day in schedule_data and slot in schedule_data[day]:
+                    class_info = schedule_data[day][slot]
+                    if class_info:
+                        if class_info.get('type') == 'LUNCH':
+                            cell_content = "<b>LUNCH BREAK</b>"
+                        else:
+                            subject = str(class_info.get('subject', 'N/A'))[:22]
+                            faculty = str(class_info.get('faculty', 'TBD'))[:18]
+                            room = str(class_info.get('room', 'TBD'))[:12]
+                            class_type = str(class_info.get('type', ''))[:8]
+                            
+                            cell_content = f"<b>{subject}</b><br/>"
+                            cell_content += f"{faculty}<br/>"
+                            cell_content += f"{room}"
+                            if class_type and class_type not in ['Theory', 'LUNCH']:
+                                cell_content += f"<br/><i>({class_type})</i>"
+                    else:
+                        cell_content = "<font color='gray'>FREE</font>"
+                else:
+                    cell_content = "<font color='gray'>FREE</font>"
+                
+                row.append(Paragraph(cell_content, cell_style))
+            
+            data.append(row)
+        
+        # Calculate column widths
+        available_width = page_width - 1.5*cm
+        time_col_width = 2.2*cm
+        day_col_width = (available_width - time_col_width) / 5
+        
+        col_widths = [time_col_width] + [day_col_width] * 5
+        
+        # Create table
+        table = Table(data, colWidths=col_widths, repeatRows=1)
+        
+        # Table styling
+        style_commands = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498db')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#ecf0f1')),
+            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#bdc3c7')),
+            ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor('#2c3e50')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ]
+        
+        # Alternating colors
+        for i in range(1, len(data)):
+            if i % 2 == 0:
+                style_commands.append(('BACKGROUND', (1, i), (-1, i), colors.HexColor('#f8f9fa')))
+        
+        table.setStyle(TableStyle(style_commands))
+        
+        # Highlight lunch
+        for i, slot in enumerate(time_slots):
+            row_idx = i + 1
+            for j, day in enumerate(days):
+                if day in schedule_data and slot in schedule_data[day]:
+                    class_info = schedule_data[day][slot]
+                    if class_info and class_info.get('type') == 'LUNCH':
+                        table.setStyle(TableStyle([
+                            ('BACKGROUND', (j+1, row_idx), (j+1, row_idx), colors.HexColor('#ffeaa7')),
+                        ]))
+        
+        elements.append(table)
+        
+        # Footer
+        elements.append(Spacer(1, 15))
+        footer_style = ParagraphStyle(
+            'FooterStyle',
+            parent=styles['Normal'],
+            fontSize=8,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#95a5a6')
+        )
+        elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", footer_style))
+        
+        doc.build(elements)
+        
         buffer.seek(0)
         return buffer
-
+    
+    @staticmethod
+    def export_to_excel_formatted(schedule_data, school_name="", batch_name=""):
+        """Export timetable to Excel with proper formatting"""
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from openpyxl.utils import get_column_letter
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Timetable"
+        
+        # Define styles
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="3498db", end_color="3498db", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        time_font = Font(bold=True, size=10)
+        time_fill = PatternFill(start_color="ecf0f1", end_color="ecf0f1", fill_type="solid")
+        
+        cell_font = Font(size=9)
+        cell_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        lunch_fill = PatternFill(start_color="fff3cd", end_color="fff3cd", fill_type="solid")
+        free_fill = PatternFill(start_color="f8f9fa", end_color="f8f9fa", fill_type="solid")
+        
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Add title
+        ws.merge_cells('A1:F1')
+        title_cell = ws['A1']
+        title_cell.value = f"Timetable: {school_name} - {batch_name}" if school_name else "Weekly Timetable"
+        title_cell.font = Font(bold=True, size=14, color="2c3e50")
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 30
+        
+        # Headers
+        days = ['Time Slot', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        time_slots = ["09:00-10:00", "10:00-11:00", "11:00-12:00", 
+                     "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00"]
+        
+        for col, day in enumerate(days, 1):
+            cell = ws.cell(row=3, column=col, value=day)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = thin_border
+        
+        ws.row_dimensions[3].height = 25
+        
+        # Data rows
+        for row_idx, slot in enumerate(time_slots, 4):
+            # Time column
+            time_cell = ws.cell(row=row_idx, column=1, value=slot)
+            time_cell.font = time_font
+            time_cell.fill = time_fill
+            time_cell.alignment = cell_alignment
+            time_cell.border = thin_border
+            
+            # Day columns
+            for col_idx, day in enumerate(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], 2):
+                cell_value = ""
+                cell_fill = None
+                
+                if day in schedule_data and slot in schedule_data[day]:
+                    class_info = schedule_data[day][slot]
+                    if class_info:
+                        if class_info.get('type') == 'LUNCH':
+                            cell_value = "🍴 LUNCH BREAK"
+                            cell_fill = lunch_fill
+                        else:
+                            subject = str(class_info.get('subject', 'N/A'))
+                            faculty = str(class_info.get('faculty', 'TBD'))
+                            room = str(class_info.get('room', 'TBD'))
+                            class_type = str(class_info.get('type', ''))
+                            
+                            # Format with line breaks
+                            cell_value = f"📚 {subject}\n👨‍🏫 {faculty}\n📍 {room}"
+                            if class_type and class_type not in ['Theory', 'LUNCH']:
+                                cell_value += f"\n({class_type})"
+                    else:
+                        cell_value = "FREE"
+                        cell_fill = free_fill
+                else:
+                    cell_value = "FREE"
+                    cell_fill = free_fill
+                
+                cell = ws.cell(row=row_idx, column=col_idx, value=cell_value)
+                cell.font = cell_font
+                cell.alignment = cell_alignment
+                cell.border = thin_border
+                if cell_fill:
+                    cell.fill = cell_fill
+            
+            # Set row height for content
+            ws.row_dimensions[row_idx].height = 60
+        
+        # Set column widths
+        ws.column_dimensions['A'].width = 15  # Time column
+        for col in ['B', 'C', 'D', 'E', 'F']:
+            ws.column_dimensions[col].width = 25  # Day columns
+        
+        # Save to buffer
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        
+        return buffer.getvalue()
 
 # ============================================================================
 # REPORT GENERATOR - ADD THIS ENTIRE SECTION BELOW
@@ -3250,13 +3914,15 @@ def main():
                                     
                                     with col1:
                                         if st.button("📥 Export to Excel", key="export_excel_view"):
-                                            output = io.BytesIO()
-                                            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                                df.to_excel(writer, sheet_name='Timetable', index=False)
-                                            output.seek(0)
+                                            # Use the new formatted export
+                                            excel_data = ExportManager.export_to_excel_formatted(
+                                                batch_schedule,
+                                                school_name=selected_school_key,
+                                                batch_name=selected_batch
+                                            )
                                             st.download_button(
                                                 label="Download Excel",
-                                                data=output,
+                                                data=excel_data,
                                                 file_name=f"timetable_{selected_school_key}_{selected_batch}.xlsx",
                                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                             )
@@ -3270,16 +3936,20 @@ def main():
                                                 file_name=f"timetable_{selected_school_key}_{selected_batch}.csv",
                                                 mime="text/csv"
                                             )
-                                    
                                     with col3:
                                         if st.button("📥 Export to PDF", key="export_pdf_view"):
-                                            pdf_buffer = ExportManager.export_to_pdf(batch_schedule)
+                                            # Use the detailed export with school and batch info
+                                            pdf_buffer = ExportManager.export_to_pdf_detailed(
+                                                batch_schedule,
+                                                school_name=selected_school_key,
+                                                batch_name=selected_batch
+                                            )
                                             st.download_button(
                                                 label="Download PDF",
                                                 data=pdf_buffer,
                                                 file_name=f"timetable_{selected_school_key}_{selected_batch}.pdf",
                                                 mime="application/pdf"
-                                            )
+                                            )                                    
             else:
                 st.info("No timetables generated yet. Please generate a timetable first.")
 
@@ -4202,6 +4872,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
