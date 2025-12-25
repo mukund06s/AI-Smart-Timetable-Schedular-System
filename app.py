@@ -4576,7 +4576,8 @@ def main():
                 
             else:
                 st.error("❌ Firebase not connected. Reports require Firebase connection.")   
-    # ==================== FACULTY PORTAL (UNCHANGED - B. No Changes) ====================
+
+    # ==================== FACULTY PORTAL (UPDATED WITH AUTO-LOAD) ====================
     elif st.session_state.portal == 'faculty':
         st.markdown('<h1 class="main-header">👨‍🏫 Faculty Portal</h1>', unsafe_allow_html=True)
         
@@ -4585,176 +4586,308 @@ def main():
             st.rerun()
         
         st.markdown("### 📅 Faculty Timetables")
+        st.markdown("View faculty schedules organized by school and program")
         
-        # Load from Firebase option
+        # ==================== AUTO-LOAD DATA FROM FIREBASE ====================
         if firebase_manager:
-            if st.button("📥 Load Latest from Firebase"):
-                timetables = firebase_manager.get_all_timetables()
-                if timetables:
-                    st.session_state.current_schedule = timetables[0].get('schedule')
-                    # Also load faculty from info datasets
-                    all_info = firebase_manager.get_info_dataset()
-                    if all_info:
-                        all_records = []
-                        for dataset in all_info:
-                            if 'data' in dataset:
-                                all_records.extend(dataset['data'])
-                        if all_records:
-                            upload_manager = DatasetUploadManager(firebase_manager)
-                            st.session_state.faculties = upload_manager.extract_faculty_from_info(all_records)
-                    st.success("✅ Loaded from Firebase")
-        
-        if st.session_state.current_schedule and st.session_state.faculties:
-            schedule = st.session_state.current_schedule
             
-            faculty_schedules = defaultdict(lambda: defaultdict(dict))
-            faculty_schools = defaultdict(set)
-            
-            for school in schedule:
-                for batch in schedule[school]:
-                    for day in schedule[school][batch]:
-                        for slot, class_info in schedule[school][batch][day].items():
-                            if class_info and 'faculty' in class_info and class_info['faculty']:
-                                faculty_name = class_info['faculty']
-                                faculty_schools[faculty_name].add(school)
-                                faculty_schedules[faculty_name][day][slot] = {
-                                    'subject': class_info['subject'],
-                                    'room': class_info['room'],
-                                    'school': school,
-                                    'batch': batch,
-                                    'type': class_info.get('type', 'Theory')
-                                }
-            
-            # Faculty selector
-            faculty_names = sorted(faculty_schedules.keys())
-            if faculty_names:
-                selected_faculty = st.selectbox(
-                    "Select Faculty",
-                    faculty_names,
-                    key="faculty_selector"
-                )
+            # AUTO-LOAD: Check if data is already loaded, if not, load automatically
+            if 'all_faculty_schedules' not in st.session_state or not st.session_state.all_faculty_schedules:
                 
-                if selected_faculty:
-                    with st.expander(f"📘 {selected_faculty}'s Timetable", expanded=True):
-                        faculty_schedule = faculty_schedules[selected_faculty]
+                # Show loading status
+                with st.spinner("🔄 Loading faculty data from Firebase..."):
+                    
+                    # Initialize containers
+                    all_faculty_schedules = defaultdict(lambda: defaultdict(dict))
+                    faculty_info = {}
+                    faculty_by_school = defaultdict(set)
+                    
+                    # Get ALL timetables from Firebase
+                    all_timetables = firebase_manager.get_all_timetables()
+                    
+                    if all_timetables:
+                        # Process each timetable
+                        for timetable in all_timetables:
+                            schedule = timetable.get('schedule', {})
+                            timetable_id = timetable.get('year', 'Unknown')
+                            
+                            for school in schedule:
+                                for batch in schedule[school]:
+                                    for day in schedule[school][batch]:
+                                        for slot, class_info in schedule[school][batch][day].items():
+                                            if class_info and class_info.get('faculty') and class_info.get('type') != 'LUNCH':
+                                                faculty_name = class_info['faculty']
+                                                
+                                                if faculty_name and faculty_name != 'TBD':
+                                                    # Track faculty by school
+                                                    school_type = 'STME' if 'STME' in school else ('SOC' if 'SOC' in school else 'SOL')
+                                                    faculty_by_school[school_type].add(faculty_name)
+                                                    
+                                                    # Store faculty info
+                                                    if faculty_name not in faculty_info:
+                                                        faculty_info[faculty_name] = {
+                                                            'schools': set(),
+                                                            'subjects': set(),
+                                                            'total_hours': 0
+                                                        }
+                                                    
+                                                    faculty_info[faculty_name]['schools'].add(school)
+                                                    faculty_info[faculty_name]['subjects'].add(class_info.get('subject', ''))
+                                                    faculty_info[faculty_name]['total_hours'] += 1
+                                                    
+                                                    # Store schedule
+                                                    all_faculty_schedules[faculty_name][day][slot] = {
+                                                        'subject': class_info.get('subject', 'N/A'),
+                                                        'room': class_info.get('room', 'TBD'),
+                                                        'school': school,
+                                                        'batch': batch,
+                                                        'type': class_info.get('type', 'Theory'),
+                                                        'timetable': timetable_id
+                                                    }
                         
-                        primary_school = get_faculty_primary_school(selected_faculty, st.session_state.faculties)
+                        # Store in session state
+                        st.session_state.all_faculty_schedules = dict(all_faculty_schedules)
+                        st.session_state.faculty_info = faculty_info
+                        st.session_state.faculty_by_school = dict(faculty_by_school)
+                        st.session_state.all_timetables_count = len(all_timetables)
+                        st.session_state.all_timetables_list = all_timetables
+                    else:
+                        # No timetables found - set empty
+                        st.session_state.all_faculty_schedules = {}
+                        st.session_state.faculty_info = {}
+                        st.session_state.faculty_by_school = {}
+                        st.session_state.all_timetables_count = 0
+                        st.session_state.all_timetables_list = []
+            
+            # ==================== FIREBASE QUICK STATS (ALWAYS VISIBLE) ====================
+            st.markdown("---")
+            st.markdown("### 📊 Firebase Quick Stats")
+            
+            # Get data from session state
+            all_timetables_count = st.session_state.get('all_timetables_count', 0)
+            faculty_info = st.session_state.get('faculty_info', {})
+            faculty_by_school = st.session_state.get('faculty_by_school', {})
+            all_timetables_list = st.session_state.get('all_timetables_list', [])
+            
+            # Display stats in columns
+            stat_col1, stat_col2, stat_col3, stat_col4, stat_col5 = st.columns(5)
+            
+            with stat_col1:
+                st.metric("📅 Total Timetables", all_timetables_count)
+            
+            with stat_col2:
+                st.metric("👨‍🏫 Total Faculty", len(faculty_info))
+            
+            with stat_col3:
+                stme_count = len(faculty_by_school.get('STME', set()))
+                st.metric("🔧 STME Faculty", stme_count)
+            
+            with stat_col4:
+                soc_count = len(faculty_by_school.get('SOC', set()))
+                st.metric("💼 SOC Faculty", soc_count)
+            
+            with stat_col5:
+                sol_count = len(faculty_by_school.get('SOL', set()))
+                st.metric("⚖️ SOL Faculty", sol_count)
+            
+            # Show timetables list
+            with st.expander("📋 Timetables in Database", expanded=False):
+                if all_timetables_list:
+                    for tt in all_timetables_list:
+                        tt_year = tt.get('year', 'Unknown')
+                        tt_status = tt.get('status', 'active')
+                        tt_clashes = tt.get('clash_count', 0)
                         
-                        if 'STME' in primary_school:
-                            faculty_lunch_time = '13:00-14:00'
-                        elif 'SOC' in primary_school:
-                            faculty_lunch_time = '11:00-12:00'
-                        elif 'SOL' in primary_school:
-                            faculty_lunch_time = '12:00-13:00'
+                        status_icon = "✅" if tt_status == 'active' else "⚠️"
+                        clash_text = f"({tt_clashes} clashes)" if tt_clashes > 0 else "(No clashes)"
+                        
+                        st.write(f"  {status_icon} **{tt_year}** - {tt_status.capitalize()} {clash_text}")
+                else:
+                    st.info("No timetables found in Firebase database.")
+            
+            # Refresh button
+            col1, col2, col3 = st.columns([1, 1, 4])
+            
+            with col1:
+                if st.button("🔄 Refresh Data", type="primary", key="refresh_faculty_data"):
+                    # Clear session state to force reload
+                    if 'all_faculty_schedules' in st.session_state:
+                        del st.session_state.all_faculty_schedules
+                    if 'faculty_info' in st.session_state:
+                        del st.session_state.faculty_info
+                    if 'faculty_by_school' in st.session_state:
+                        del st.session_state.faculty_by_school
+                    if 'all_timetables_count' in st.session_state:
+                        del st.session_state.all_timetables_count
+                    if 'all_timetables_list' in st.session_state:
+                        del st.session_state.all_timetables_list
+                    st.rerun()
+            
+            with col2:
+                # Last updated timestamp
+                if 'faculty_data_loaded_at' not in st.session_state:
+                    st.session_state.faculty_data_loaded_at = datetime.now().strftime("%H:%M:%S")
+                st.caption(f"Last updated: {st.session_state.faculty_data_loaded_at}")
+            
+            st.markdown("---")
+            
+            # ==================== DISPLAY FACULTY BY SCHOOL ====================
+            if st.session_state.get('all_faculty_schedules'):
+                
+                all_faculty_schedules = st.session_state.all_faculty_schedules
+                faculty_info = st.session_state.faculty_info
+                faculty_by_school = st.session_state.faculty_by_school
+                
+                # ==================== SCHOOL-WISE TABS ====================
+                school_tabs = st.tabs(["🏫 All Schools", "🔧 STME", "💼 SOC", "⚖️ SOL"])
+                
+                # --------------------- ALL SCHOOLS TAB ---------------------
+                with school_tabs[0]:
+                    st.markdown("### 📋 All Faculty Members")
+                    
+                    # Search functionality
+                    search_query = st.text_input("🔍 Search Faculty", placeholder="Enter faculty name...", key="search_all")
+                    
+                    # Filter faculties based on search
+                    filtered_faculties = list(faculty_info.keys())
+                    if search_query:
+                        filtered_faculties = [f for f in filtered_faculties if search_query.lower() in f.lower()]
+                    
+                    if filtered_faculties:
+                        # Faculty selector
+                        selected_faculty = st.selectbox(
+                            "Select Faculty Member",
+                            sorted(filtered_faculties),
+                            key="faculty_selector_all"
+                        )
+                        
+                        if selected_faculty and selected_faculty in all_faculty_schedules:
+                            display_faculty_timetable(
+                                selected_faculty, 
+                                all_faculty_schedules[selected_faculty],
+                                faculty_info[selected_faculty],
+                                tab_id="all"
+                            )
+                    else:
+                        st.info("No faculty members found matching your search.")
+                
+                # --------------------- STME TAB ---------------------
+                with school_tabs[1]:
+                    st.markdown("### 🔧 STME - School of Technology, Management and Engineering")
+                    st.markdown("Programs: BTECH, MBATECH")
+                    
+                    stme_faculties = sorted(list(faculty_by_school.get('STME', set())))
+                    
+                    if stme_faculties:
+                        # Search within STME
+                        stme_search = st.text_input("🔍 Search STME Faculty", placeholder="Enter name...", key="search_stme")
+                        
+                        filtered_stme = stme_faculties
+                        if stme_search:
+                            filtered_stme = [f for f in stme_faculties if stme_search.lower() in f.lower()]
+                        
+                        if filtered_stme:
+                            selected_stme_faculty = st.selectbox(
+                                "Select Faculty",
+                                filtered_stme,
+                                key="faculty_selector_stme"
+                            )
+                            
+                            if selected_stme_faculty and selected_stme_faculty in all_faculty_schedules:
+                                display_faculty_timetable(
+                                    selected_stme_faculty,
+                                    all_faculty_schedules[selected_stme_faculty],
+                                    faculty_info[selected_stme_faculty],
+                                    tab_id="stme"
+                                )
                         else:
-                            faculty_lunch_time = '13:00-14:00'
+                            st.info("No STME faculty found matching your search.")
+                    else:
+                        st.info("No STME faculty data available.")
+                
+                # --------------------- SOC TAB ---------------------
+                with school_tabs[2]:
+                    st.markdown("### 💼 SOC - School of Commerce")
+                    st.markdown("Programs: BBA, BCOM")
+                    
+                    soc_faculties = sorted(list(faculty_by_school.get('SOC', set())))
+                    
+                    if soc_faculties:
+                        # Search within SOC
+                        soc_search = st.text_input("🔍 Search SOC Faculty", placeholder="Enter name...", key="search_soc")
                         
-                        schools_taught = list(faculty_schools[selected_faculty])
+                        filtered_soc = soc_faculties
+                        if soc_search:
+                            filtered_soc = [f for f in soc_faculties if soc_search.lower() in f.lower()]
                         
-                        st.info(f"**Department School:** {primary_school} | **Lunch Time:** {faculty_lunch_time}")
+                        if filtered_soc:
+                            selected_soc_faculty = st.selectbox(
+                                "Select Faculty",
+                                filtered_soc,
+                                key="faculty_selector_soc"
+                            )
+                            
+                            if selected_soc_faculty and selected_soc_faculty in all_faculty_schedules:
+                                display_faculty_timetable(
+                                    selected_soc_faculty,
+                                    all_faculty_schedules[selected_soc_faculty],
+                                    faculty_info[selected_soc_faculty],
+                                    tab_id="soc"
+                                )
+                        else:
+                            st.info("No SOC faculty found matching your search.")
+                    else:
+                        st.info("No SOC faculty data available.")
+                
+                # --------------------- SOL TAB ---------------------
+                with school_tabs[3]:
+                    st.markdown("### ⚖️ SOL - School of Law")
+                    st.markdown("Programs: LAW")
+                    
+                    sol_faculties = sorted(list(faculty_by_school.get('SOL', set())))
+                    
+                    if sol_faculties:
+                        # Search within SOL
+                        sol_search = st.text_input("🔍 Search SOL Faculty", placeholder="Enter name...", key="search_sol")
                         
-                        # View options
-                        view_type = st.radio("View Type", ["Week", "Day"], horizontal=True)
+                        filtered_sol = sol_faculties
+                        if sol_search:
+                            filtered_sol = [f for f in sol_faculties if sol_search.lower() in f.lower()]
                         
-                        if view_type == "Week":
-                            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-                            all_slots = ["09:00-10:00", "10:00-11:00", "11:00-12:00", 
-                                        "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00"]
+                        if filtered_sol:
+                            selected_sol_faculty = st.selectbox(
+                                "Select Faculty",
+                                filtered_sol,
+                                key="faculty_selector_sol"
+                            )
                             
-                            timetable_data = []
-                            total_hours = 0
-                            
-                            for day in days:
-                                row = {'Day': day}
-                                for slot in all_slots:
-                                    if slot == faculty_lunch_time:
-                                        row[slot] = "🍴 LUNCH BREAK"
-                                    elif day in faculty_schedule and slot in faculty_schedule[day]:
-                                        class_info = faculty_schedule[day][slot]
-                                        if class_info.get('type') == 'LUNCH':
-                                            row[slot] = "🍴 LUNCH BREAK"
-                                        else:
-                                            cell_text = f"{class_info['subject']}\n"
-                                            cell_text += f"📍 {class_info['room']}\n"
-                                            cell_text += f"{class_info['school']}-{class_info['batch']}"
-                                            row[slot] = cell_text
-                                            total_hours += 1
-                                    else:
-                                        row[slot] = "FREE"
-                                timetable_data.append(row)
-                            
-                            # Display metrics
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Total Weekly Hours", total_hours)
-                            with col2:
-                                avg_daily = total_hours / 5 if total_hours > 0 else 0
-                                st.metric("Average Daily Hours", f"{avg_daily:.1f}")
-                            with col3:
-                                subjects_taught = len(set(
-                                    class_info['subject'] 
-                                    for day_schedule in faculty_schedule.values()
-                                    for class_info in day_schedule.values()
-                                    if class_info.get('type') != 'LUNCH'
-                                ))
-                                st.metric("Subjects Teaching", subjects_taught)
-                            
-                            df = pd.DataFrame(timetable_data)
-                            st.dataframe(df, use_container_width=True)
-                            
-                            # Export options
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("📥 Export to Excel", key="faculty_export_excel"):
-                                    output = io.BytesIO()
-                                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                                        df.to_excel(writer, sheet_name='Faculty Timetable', index=False)
-                                    output.seek(0)
-                                    st.download_button(
-                                        label="Download Excel",
-                                        data=output,
-                                        file_name=f"faculty_{selected_faculty}_timetable.xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                    )
-                            
-                            with col2:
-                                if st.button("📥 Export to PDF", key="faculty_export_pdf"):
-                                    pdf_buffer = ExportManager.export_to_pdf(
-                                        {day: faculty_schedule.get(day, {}) for day in days}
-                                    )
-                                    st.download_button(
-                                        label="Download PDF",
-                                        data=pdf_buffer,
-                                        file_name=f"faculty_{selected_faculty}_timetable.pdf",
-                                        mime="application/pdf"
-                                    )
-                        
-                        else:  # Day view
-                            selected_day = st.selectbox("Select Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-                            
-                            st.markdown(f"#### {selected_day} Schedule")
-                            day_data = []
-                            for slot in ["09:00-10:00", "10:00-11:00", "11:00-12:00", 
-                                       "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00"]:
-                                if slot == faculty_lunch_time:
-                                    day_data.append({"Time": slot, "Details": "🍴 LUNCH BREAK"})
-                                elif selected_day in faculty_schedule and slot in faculty_schedule[selected_day]:
-                                    class_info = faculty_schedule[selected_day][slot]
-                                    details = f"{class_info['subject']} | {class_info['room']} | {class_info['school']}-{class_info['batch']}"
-                                    day_data.append({"Time": slot, "Details": details})
-                                else:
-                                    day_data.append({"Time": slot, "Details": "FREE"})
-                            
-                            df_day = pd.DataFrame(day_data)
-                            st.dataframe(df_day, use_container_width=True)
-                        
-                        if len(schools_taught) > 1:
-                            st.warning(f"Note: This faculty teaches in multiple schools: {', '.join(schools_taught)}")
+                            if selected_sol_faculty and selected_sol_faculty in all_faculty_schedules:
+                                display_faculty_timetable(
+                                    selected_sol_faculty,
+                                    all_faculty_schedules[selected_sol_faculty],
+                                    faculty_info[selected_sol_faculty],
+                                    tab_id="sol"
+                                )
+                        else:
+                            st.info("No SOL faculty found matching your search.")
+                    else:
+                        st.info("No SOL faculty data available.")
+            
             else:
-                st.info("No faculty schedules found in the generated timetable.")
+                # No data found
+                st.warning("⚠️ No faculty data found in Firebase. Please generate timetables from Admin Portal first.")
+                
+                st.markdown("#### 💡 How to get started:")
+                st.markdown("""
+                1. Go to **Admin Portal**
+                2. Upload **Info Dataset** with faculty assignments
+                3. **Generate Timetable** for at least one program/semester
+                4. Come back here to view faculty schedules
+                """)
+        
         else:
-            st.info("No timetables available. Please generate timetables from Admin Portal first.")
-    
+            st.error("❌ Firebase not connected. Please check your connection.")
+    # ==================== STUDENT PORTAL (Keep existing code below this) ====================    
     # ==================== STUDENT PORTAL (UNCHANGED - C. No Changes) ====================
     elif st.session_state.portal == 'student':
         st.markdown('<h1 class="main-header">👨‍🎓 Student Portal</h1>', unsafe_allow_html=True)
@@ -4868,6 +5001,264 @@ def main():
                     )
         else:
             st.info("No timetables available. Please contact your administrator.")
+
+def display_faculty_timetable(faculty_name, faculty_schedule, faculty_metadata, tab_id=""):
+    key_prefix = f"{tab_id}_{faculty_name.replace(' ', '_').replace('.', '')}"
+    """Display a faculty member's complete timetable with details"""
+    
+    # Create unique key prefix
+    key_prefix = f"{tab_id}_{faculty_name.replace(' ', '_').replace('.', '')}"
+    
+    with st.expander(f"📘 {faculty_name}'s Timetable", expanded=True):
+        
+        # Faculty Info Header
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            schools = faculty_metadata.get('schools', set())
+            school_list = ', '.join([s.split('_')[0] if '_' in s else s for s in schools])
+            st.info(f"**Schools:** {school_list}")
+        
+        with col2:
+            subjects = faculty_metadata.get('subjects', set())
+            st.info(f"**Subjects:** {len(subjects)}")
+        
+        with col3:
+            total_hours = faculty_metadata.get('total_hours', 0)
+            status = "🔴 Overloaded" if total_hours > 20 else ("🟢 Optimal" if total_hours >= 15 else "🟡 Underloaded")
+            st.info(f"**Weekly Hours:** {total_hours} ({status})")
+        
+        # Determine lunch time based on primary school
+        schools_str = str(list(faculty_metadata.get('schools', set())))
+        if 'SOC' in schools_str:
+            lunch_time = '11:00-12:00'
+        elif 'SOL' in schools_str:
+            lunch_time = '12:00-13:00'
+        else:
+            lunch_time = '13:00-14:00'
+        
+        st.caption(f"🍴 Lunch Time: {lunch_time}")
+        
+        # View type selector - UPDATED KEY
+        view_type = st.radio(
+            "View Type", 
+            ["📅 Week View", "📆 Day View", "📊 Summary"], 
+            horizontal=True, 
+            key=f"view_{key_prefix}"  # UNIQUE KEY
+        )
+        
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        all_slots = ["09:00-10:00", "10:00-11:00", "11:00-12:00", 
+                    "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00"]
+        
+        if view_type == "📅 Week View":
+            # Weekly Timetable View
+            timetable_data = []
+            teaching_hours = 0
+            
+            for day in days:
+                row = {'Day': day}
+                for slot in all_slots:
+                    if slot == lunch_time:
+                        row[slot] = "🍴 LUNCH"
+                    elif day in faculty_schedule and slot in faculty_schedule[day]:
+                        class_info = faculty_schedule[day][slot]
+                        if class_info:
+                            if class_info.get('type') == 'LUNCH':
+                                row[slot] = "🍴 LUNCH"
+                            else:
+                                subject = class_info.get('subject', 'N/A')[:15]
+                                room = class_info.get('room', 'TBD')[:10]
+                                batch = class_info.get('batch', '')
+                                section = batch.split('_')[-1] if '_' in batch else batch
+                                
+                                row[slot] = f"📚 {subject}\n📍 {room}\n👥 {section}"
+                                teaching_hours += 1
+                        else:
+                            row[slot] = "FREE"
+                    else:
+                        row[slot] = "FREE"
+                timetable_data.append(row)
+            
+            # Display metrics
+            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+            with metric_col1:
+                st.metric("Total Classes", teaching_hours)
+            with metric_col2:
+                avg_daily = teaching_hours / 5 if teaching_hours > 0 else 0
+                st.metric("Avg Daily", f"{avg_daily:.1f}")
+            with metric_col3:
+                free_slots = (5 * 6) - teaching_hours
+                st.metric("Free Slots", free_slots)
+            with metric_col4:
+                unique_subjects = len(faculty_metadata.get('subjects', set()))
+                st.metric("Subjects", unique_subjects)
+            
+            # Display timetable
+            df = pd.DataFrame(timetable_data)
+            st.dataframe(df, use_container_width=True, height=350)
+            
+            # Export options
+            st.markdown("##### 📥 Export Options")
+            exp_col1, exp_col2, exp_col3 = st.columns(3)
+            
+            with exp_col1:
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv,
+                    file_name=f"faculty_{faculty_name.replace(' ', '_')}_timetable.csv",
+                    mime="text/csv",
+                    key=f"csv_{key_prefix}"  # UNIQUE KEY
+                )
+            
+            with exp_col2:
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, sheet_name='Timetable', index=False)
+                output.seek(0)
+                st.download_button(
+                    label="📥 Download Excel",
+                    data=output,
+                    file_name=f"faculty_{faculty_name.replace(' ', '_')}_timetable.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"excel_{key_prefix}"  # UNIQUE KEY
+                )
+            
+            with exp_col3:
+                if st.button("📥 Generate PDF", key=f"pdf_{key_prefix}"):  # UNIQUE KEY
+                    pdf_schedule = {day: faculty_schedule.get(day, {}) for day in days}
+                    pdf_buffer = ExportManager.export_to_pdf_detailed(
+                        pdf_schedule,
+                        school_name="Faculty Timetable",
+                        batch_name=faculty_name
+                    )
+                    st.download_button(
+                        label="📥 Download PDF",
+                        data=pdf_buffer,
+                        file_name=f"faculty_{faculty_name.replace(' ', '_')}_timetable.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_download_{key_prefix}"  # UNIQUE KEY
+                    )
+        
+        elif view_type == "📆 Day View":
+            selected_day = st.selectbox(
+                "Select Day", 
+                days, 
+                key=f"day_{key_prefix}"  # UNIQUE KEY
+            )
+            
+            st.markdown(f"#### {selected_day}'s Schedule")
+            
+            day_data = []
+            for slot in all_slots:
+                if slot == lunch_time:
+                    day_data.append({
+                        "Time": slot,
+                        "Subject": "🍴 LUNCH BREAK",
+                        "Room": "Cafeteria",
+                        "Class": "-",
+                        "Type": "LUNCH"
+                    })
+                elif selected_day in faculty_schedule and slot in faculty_schedule[selected_day]:
+                    class_info = faculty_schedule[selected_day][slot]
+                    if class_info and class_info.get('type') != 'LUNCH':
+                        day_data.append({
+                            "Time": slot,
+                            "Subject": class_info.get('subject', 'N/A'),
+                            "Room": class_info.get('room', 'TBD'),
+                            "Class": class_info.get('batch', 'N/A'),
+                            "Type": class_info.get('type', 'Theory')
+                        })
+                    else:
+                        day_data.append({
+                            "Time": slot,
+                            "Subject": "FREE",
+                            "Room": "-",
+                            "Class": "-",
+                            "Type": "-"
+                        })
+                else:
+                    day_data.append({
+                        "Time": slot,
+                        "Subject": "FREE",
+                        "Room": "-",
+                        "Class": "-",
+                        "Type": "-"
+                    })
+            
+            df_day = pd.DataFrame(day_data)
+            st.dataframe(df_day, use_container_width=True, hide_index=True)
+            
+            teaching_count = sum(1 for d in day_data if d['Subject'] not in ['FREE', '🍴 LUNCH BREAK'])
+            st.caption(f"📊 Teaching {teaching_count} classes on {selected_day}")
+        
+        elif view_type == "📊 Summary":
+            st.markdown("#### 📊 Teaching Summary")
+            
+            st.markdown("##### 📚 Subjects Teaching")
+            subjects = faculty_metadata.get('subjects', set())
+            for subject in sorted(subjects):
+                if subject:
+                    st.write(f"  • {subject}")
+            
+            st.markdown("##### 🏫 Schools & Programs")
+            schools = faculty_metadata.get('schools', set())
+            for school in sorted(schools):
+                st.write(f"  • {school}")
+            
+            st.markdown("##### ⏱️ Workload Analysis")
+            total_hours = faculty_metadata.get('total_hours', 0)
+            
+            theory_hours = 0
+            lab_hours = 0
+            tutorial_hours = 0
+            
+            for day in days:
+                if day in faculty_schedule:
+                    for slot, class_info in faculty_schedule[day].items():
+                        if class_info and class_info.get('type') != 'LUNCH':
+                            class_type = class_info.get('type', 'Theory').lower()
+                            if 'lab' in class_type:
+                                lab_hours += 1
+                            elif 'tutorial' in class_type:
+                                tutorial_hours += 1
+                            else:
+                                theory_hours += 1
+            
+            workload_col1, workload_col2, workload_col3 = st.columns(3)
+            with workload_col1:
+                st.metric("Theory Hours", theory_hours)
+            with workload_col2:
+                st.metric("Lab Hours", lab_hours)
+            with workload_col3:
+                st.metric("Tutorial Hours", tutorial_hours)
+            
+            if total_hours > 20:
+                st.error(f"⚠️ Faculty is OVERLOADED with {total_hours} hours/week (Max recommended: 20)")
+            elif total_hours >= 15:
+                st.success(f"✅ Faculty has OPTIMAL workload: {total_hours} hours/week")
+            else:
+                st.warning(f"⚠️ Faculty is UNDERLOADED with only {total_hours} hours/week (Min recommended: 15)")
+            
+            st.markdown("##### 📈 Daily Distribution")
+            daily_hours = {}
+            for day in days:
+                count = 0
+                if day in faculty_schedule:
+                    for slot, class_info in faculty_schedule[day].items():
+                        if class_info and class_info.get('type') != 'LUNCH':
+                            count += 1
+                daily_hours[day] = count
+            
+            fig = px.bar(
+                x=list(daily_hours.keys()),
+                y=list(daily_hours.values()),
+                labels={'x': 'Day', 'y': 'Classes'},
+                title="Classes per Day"
+            )
+            fig.update_layout(height=300)
+            st.plotly_chart(fig, use_container_width=True, key=f"chart_{key_prefix}")  # UNIQUE KEY
 
 
 if __name__ == "__main__":
