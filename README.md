@@ -6,6 +6,8 @@ The system automatically generates optimized, clash-free timetables by consideri
 
 This project is suitable for real-world academic deployment and is being migrated toward a MERN-based production system.
 
+APP LINK: https://ai-smart-timetable-schedular-system-bfzv7gdxsskzsnhmupzkwv.streamlit.app/
+
 🚀 Key Features
 
 ✅ AI-Based Timetable Generation
