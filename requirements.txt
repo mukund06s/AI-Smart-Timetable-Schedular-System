@@ -1,0 +1,12 @@
+streamlit
+pandas
+numpy
+firebase-admin
+google-cloud-firestore
+plotly
+scikit-learn
+scipy
+networkx
+openpyxl
+xlsxwriter
+reportlab

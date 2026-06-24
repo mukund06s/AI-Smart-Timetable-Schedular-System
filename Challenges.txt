@@ -1,0 +1,4 @@
+Sabse Pehle greedy algo apply kari , par useey kya hua ki ki info_dataset se se time table toh bana diya lekin esa banaya ki 2-3 din lagatar lab hours , jab tak khatam nhi ho jate co. of counts jitney info_datset mein aur fhir lagataer theory class 
+toh real life mein toh esa hota nhi ha , real life mein mixture of theory and lab hours hota ha islliye fhir 
+
+hybrid algo use kiya 

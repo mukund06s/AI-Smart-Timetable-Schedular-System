@@ -1,0 +1,3 @@
+in terminal 
+pip install firebase-admin
+streamlit run app.py
