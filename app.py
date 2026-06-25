@@ -8716,18 +8716,30 @@ def main():
                         if day in batch_schedule and slot in batch_schedule[day]:
                             class_info = batch_schedule[day][slot]
                             if class_info:
-                                if class_info.get('type') == 'LUNCH':
-                                    duration = class_info.get('duration', 50)
-                                    row[display_slot] = f"🍴 LUNCH ({duration} min)"
-                                elif class_info.get('type') == 'BREAK':
-                                    duration = class_info.get('duration', 10)
-                                    row[display_slot] = f"☕ BREAK ({duration} min)"
-                                else:
-                                    cell_text = f"📚 {class_info.get('subject', 'N/A')}\n"
-                                    cell_text += f"👨‍🏫 {class_info.get('faculty', 'TBD')}\n"
-                                    cell_text += f"📍 {class_info.get('room', 'TBD')}"
-                                    row[display_slot] = cell_text
-                                    total_classes += 1
+                                slot_items = (
+                                    class_info
+                                    if isinstance(class_info, list)
+                                    else [class_info]
+                                )
+                                cell_parts = []
+                                for item in slot_items:
+                                    if not isinstance(item, dict):
+                                        continue
+                                    if item.get('type') == 'LUNCH':
+                                        duration = item.get('duration', 50)
+                                        cell_parts.append(f"🍴 LUNCH ({duration} min)")
+                                    elif item.get('type') == 'BREAK':
+                                        duration = item.get('duration', 10)
+                                        cell_parts.append(f"☕ BREAK ({duration} min)")
+                                    else:
+                                        cell_text = f"📚 {item.get('subject', 'N/A')}\n"
+                                        cell_text += f"👨‍🏫 {item.get('faculty', 'TBD')}\n"
+                                        cell_text += f"📍 {item.get('room', 'TBD')}"
+                                        cell_parts.append(cell_text)
+                                        total_classes += 1
+                                row[display_slot] = (
+                                    "\n\n".join(cell_parts) if cell_parts else "FREE"
+                                )
                             else:
                                 row[display_slot] = "FREE"
                         else:
