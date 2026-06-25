@@ -1,0 +1,35 @@
+{
+  "generated_at": "20260625_123713",
+  "export_dir": "research_output",
+  "metrics_csv": {
+    "table1_clash_resolution_comparison": "research_output\\metrics\\table1_clash_resolution_comparison.csv",
+    "table2_time_complexity": "research_output\\metrics\\table2_time_complexity.csv",
+    "research_metrics_combined": "research_output\\metrics\\research_metrics_combined.csv"
+  },
+  "figures": {
+    "figure1_clash_comparison": "research_output\\figures\\figure1_before_after_clash_count.html",
+    "figure2_turns_distribution": "research_output\\figures\\figure2_agent_turns_distribution.html",
+    "figure3_tool_frequency": "research_output\\figures\\figure3_tool_call_frequency.html"
+  },
+  "conversation_logs": {
+    "a0571101-f90c-464f-b670-113686399a31": "research_output\\logs\\conversation_a0571101-f90c-464f-b670-113686399a31.json",
+    "6560a2a0-9c37-4c73-93eb-89e10736e36d": "research_output\\logs\\conversation_6560a2a0-9c37-4c73-93eb-89e10736e36d.json",
+    "7e0b820d-9834-41d7-afe8-0ae2785474e4": "research_output\\logs\\conversation_7e0b820d-9834-41d7-afe8-0ae2785474e4.json"
+  },
+  "schedules": {
+    "Scenario_A_Sem2_BTECH_2Sections": {
+      "before": "research_output\\schedules\\Scenario_A_Sem2_BTECH_2Sections_before.json",
+      "after": "research_output\\schedules\\Scenario_A_Sem2_BTECH_2Sections_after.json"
+    },
+    "Scenario_B_Sem4_BTECH_2Sections": {
+      "before": "research_output\\schedules\\Scenario_B_Sem4_BTECH_2Sections_before.json",
+      "after": "research_output\\schedules\\Scenario_B_Sem4_BTECH_2Sections_after.json"
+    },
+    "Scenario_C_CrossSemester_Sem2_Sem4": {
+      "before": "research_output\\schedules\\Scenario_C_CrossSemester_Sem2_Sem4_before.json",
+      "after": "research_output\\schedules\\Scenario_C_CrossSemester_Sem2_Sem4_after.json"
+    }
+  },
+  "screenshot_figures": [],
+  "statistical_analysis": "research_output\\metrics\\statistical_analysis_20260625_123713.json"
+}

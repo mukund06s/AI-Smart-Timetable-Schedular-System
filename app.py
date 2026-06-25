@@ -3,6 +3,11 @@
 import warnings
 warnings.filterwarnings('ignore')
 
+from utils.logging_config import configure_logging, get_logger
+
+configure_logging()
+logger = get_logger("app")
+
 import streamlit as st
 
 st.set_page_config(
@@ -583,7 +588,10 @@ class FirebaseManager:
             # CHANGE 3: Faculty morning constraints tracking
             'faculty_constraints': 'faculty_constraints',
             # CHANGE 4: Faculty lunch unions
-            'faculty_lunch_unions': 'faculty_lunch_unions'
+            'faculty_lunch_unions': 'faculty_lunch_unions',
+            'agent_sessions': 'agent_sessions',
+            'repair_history': 'repair_history',
+            'agent_config': 'agent_config',
         }
     
     # ========== TIMETABLE OPERATIONS ==========
@@ -1302,6 +1310,99 @@ class FirebaseManager:
         except Exception as e:
             return None
     
+    # ========== AGENTIC AI OPERATIONS ==========
+    def save_agent_session(self, session_id: str, session_data: dict):
+        """Save agent repair session to /agent_sessions/{session_id}."""
+        try:
+            doc_ref = self.db.collection(self.collections['agent_sessions']).document(session_id)
+            session_data['updated_at'] = firestore.SERVER_TIMESTAMP
+            doc_ref.set(session_data)
+            self.log_operation('agent_session_saved', {'session_id': session_id})
+            return True, session_id
+        except Exception as e:
+            logger.exception("Failed to save agent session %s", session_id)
+            return False, str(e)
+        """Save a single repair action to /repair_history/{repair_id}."""
+        try:
+            doc_ref = self.db.collection(self.collections['repair_history']).document(repair_id)
+            repair_data['timestamp_server'] = firestore.SERVER_TIMESTAMP
+            doc_ref.set(repair_data)
+            self.log_operation('repair_history_saved', {'repair_id': repair_id})
+            return True, repair_id
+        except Exception as e:
+            logger.exception("Failed to save repair history %s", repair_id)
+            return False, str(e)
+        """Load agent configuration from /agent_config/{config_id}."""
+        try:
+            doc = self.db.collection(self.collections['agent_config']).document(config_id).get()
+            if doc.exists:
+                return doc.to_dict()
+            return {
+                'max_turns': 10,
+                'llm_model': 'claude-sonnet-4-5',
+                'enabled': True,
+                'fallback_to_random_repair': True,
+            }
+        except Exception as e:
+            return {
+                'max_turns': 10,
+                'llm_model': 'claude-sonnet-4-5',
+                'enabled': True,
+                'fallback_to_random_repair': True,
+            }
+
+    def save_agent_config(self, config_id: str, config_data: dict):
+        """Save agent configuration to /agent_config/{config_id}."""
+        try:
+            doc_ref = self.db.collection(self.collections['agent_config']).document(config_id)
+            config_data['updated_at'] = firestore.SERVER_TIMESTAMP
+            doc_ref.set(config_data, merge=True)
+            return True, config_id
+        except Exception as e:
+            return False, str(e)
+
+    def get_repair_history(self, session_id: str = None, limit: int = 50):
+        """Load repair history entries, optionally filtered by session."""
+        try:
+            query = self.db.collection(self.collections['repair_history'])
+            if session_id:
+                query = query.where('session_id', '==', session_id)
+            docs = query.limit(limit).stream()
+            history = []
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                history.append(data)
+            return history
+        except Exception as e:
+            return []
+
+    def get_agent_sessions(self, limit: int = 50):
+        """Load agent repair sessions from /agent_sessions."""
+        try:
+            docs = (
+                self.db.collection(self.collections['agent_sessions'])
+                .limit(limit)
+                .stream()
+            )
+            sessions = []
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                sessions.append(data)
+            return sessions
+        except Exception as e:
+            return []
+
+    def health_check(self) -> dict:
+        """Lightweight connectivity check for monitoring and deployment."""
+        try:
+            list(self.db.collection(self.collections['logs']).limit(1).stream())
+            return {"status": "ok", "firebase": "connected"}
+        except Exception as exc:
+            logger.exception("Firebase health check failed")
+            return {"status": "degraded", "firebase": "error", "message": str(exc)}
+
     # ========== TIMETABLE OPTIMIZATION QUERIES ==========
     def get_all_faculty_schedules(self, exclude_timetable_key: str = None):
         """Get all faculty schedules from existing timetables for optimization.
@@ -1436,7 +1537,7 @@ def render_semester_config_sidebar(firebase_mgr, selected_program: str, selected
             try:
                 start_parts = default_start.split(':')
                 default_start_time = time(int(start_parts[0]), int(start_parts[1]))
-            except:
+            except (ValueError, TypeError, IndexError):
                 default_start_time = time(13, 0)
             
             col1, col2 = st.columns(2)
@@ -3530,8 +3631,8 @@ class SmartTimetableScheduler:
 
         overall_progress.progress(90)
 
-        # ── PHASE 4: Real clash detection + deterministic repair ──────────────
-        status_text.info("🔍 Phase 4: Detecting and repairing any remaining clashes...")
+        # ── PHASE 4: Agentic AI clash repair + legacy fallback ──────────────
+        status_text.info("🔍 Phase 4: Detecting clashes and running Agentic AI repair...")
         clash_detector = ClashDetector(self.firebase)
         _p4_existing_fac = constraints.get('existing_faculty_schedules', {})
         _p4_existing_room = constraints.get('existing_room_schedules', {})
@@ -3541,39 +3642,60 @@ class SmartTimetableScheduler:
             existing_room_schedules=_p4_existing_room,
         )
 
+        agent_log_lines = []
+        agent_summary = {}
+
         if remaining_clashes:
             with details_container:
                 _cross_count = sum(1 for c in remaining_clashes
                                    if 'Cross-Semester' in c.get('type', ''))
                 _intra_count = len(remaining_clashes) - _cross_count
                 st.markdown(
-                    f"#### 🔧 Phase 4: Clash Repair  "
+                    f"#### 🤖 Phase 4: Agentic Clash Repair  "
                     f"({_intra_count} intra-schedule, {_cross_count} cross-semester)"
                 )
+                agent_log_placeholder = st.empty()
                 repair_progress = st.progress(0)
-                repair_status = st.empty()
 
-            for repair_i in range(25):
-                repair_progress.progress(int((repair_i / 25) * 100))
-                repair_status.text(f"   └─ Repair round {repair_i + 1}/25 — {len(remaining_clashes)} clashes remaining")
-                self.genetic_algorithm._intelligent_repair(optimized_schedule, constraints)
-                remaining_clashes = clash_detector.detect_all_clashes(
-                    optimized_schedule,
-                    existing_faculty_schedules=_p4_existing_fac,
-                    existing_room_schedules=_p4_existing_room,
+            from agent.integration import format_turn_log_entry, run_agentic_clash_repair
+
+            def _phase4_turn_callback(turn, response):
+                agent_log_lines.extend(format_turn_log_entry(turn, response))
+                agent_log_placeholder.markdown(
+                    "##### AGENT LOG (live)\n\n" + "\n\n".join(agent_log_lines[-20:])
                 )
-                if not remaining_clashes:
-                    repair_status.text("   └─ All clashes resolved ✅")
-                    repair_progress.progress(100)
-                    break
+                repair_progress.progress(min(90, turn * 10))
 
-        final_clash_count = len(remaining_clashes)
+            optimized_schedule, agent_summary, remaining_clashes, agent_log_lines = (
+                run_agentic_clash_repair(
+                    firebase_manager=self.firebase,
+                    genetic_algorithm=self.genetic_algorithm,
+                    schedule=optimized_schedule,
+                    clashes=remaining_clashes,
+                    constraints=constraints,
+                    program=program,
+                    semester=semester,
+                    clash_detector=clash_detector,
+                    on_turn_callback=_phase4_turn_callback,
+                )
+            )
+
+            repair_progress.progress(100)
+            st.session_state['last_agent_session'] = agent_summary
+            st.session_state['last_agent_log'] = agent_log_lines
+
+            final_clash_count = len(remaining_clashes)
             with details_container:
+                if agent_log_lines:
+                    with st.expander("🤖 Agent Repair Log", expanded=False):
+                        st.markdown("\n\n".join(agent_log_lines))
                 if final_clash_count == 0:
                     st.success("✅ Phase 4 Complete: Zero clashes!")
                 else:
-                    st.warning(f"⚠️ Phase 4: {final_clash_count} clash(es) could not be auto-resolved. "
-                               "Use the Edit tab to fix manually.")
+                    st.warning(
+                        f"⚠️ Phase 4: {final_clash_count} clash(es) could not be auto-resolved. "
+                        "Use the 🤖 AI Agent or Edit tab to fix manually."
+                    )
         else:
             final_clash_count = 0
             with details_container:
@@ -3734,15 +3856,6 @@ class SmartTimetableScheduler:
             time_module.sleep(0.1)
         
         ga_progress.progress(100)
-
-        if best_individual and best_individual.get('clashes', 0) > 0:
-            ga_status.text("   └─ Performing intelligent repair...")
-            for repair_i in range(30):
-                self.genetic_algorithm._intelligent_repair(best_individual['schedule'], constraints)
-                best_individual['fitness'] = self.genetic_algorithm.fitness(best_individual, constraints)
-                if best_individual.get('clashes', 0) == 0:
-                    ga_status.text(f"   └─ Repaired in {repair_i + 1} round(s) ✅")
-                    break
 
         return best_individual['schedule'] if best_individual else {}
     
@@ -5221,6 +5334,41 @@ class ReportGenerator:
         
         return pd.DataFrame(report_data)
     
+    def generate_agent_repair_history_report(self) -> pd.DataFrame:
+        """Generate report of agent repair actions from Firebase repair_history."""
+        history = self.firebase.get_repair_history(limit=200)
+        if not history:
+            return pd.DataFrame(
+                [{
+                    'Repair ID': 'No data',
+                    'Session ID': '-',
+                    'Action Type': '-',
+                    'Clash Type': '-',
+                    'Faculty/Room': '-',
+                    'From Slot': '-',
+                    'To Slot': '-',
+                    'Reason': 'No agent repair history found',
+                    'Success': '-',
+                    'Timestamp': '-',
+                }]
+            )
+
+        rows = []
+        for entry in history:
+            rows.append({
+                'Repair ID': entry.get('repair_id', entry.get('id', '')),
+                'Session ID': entry.get('session_id', ''),
+                'Action Type': entry.get('action_type', ''),
+                'Clash Type': entry.get('clash_type', ''),
+                'Faculty/Room': entry.get('faculty_or_room', ''),
+                'From Slot': json.dumps(entry.get('from_slot', {})),
+                'To Slot': json.dumps(entry.get('to_slot', {})),
+                'Reason': entry.get('reason', ''),
+                'Success': entry.get('success', ''),
+                'Timestamp': str(entry.get('timestamp', entry.get('timestamp_server', ''))),
+            })
+        return pd.DataFrame(rows)
+
     # CHANGE 1, 2: New report for semester configurations
     def generate_semester_config_report(self) -> pd.DataFrame:
         """Generate report of all semester configurations"""
@@ -5857,6 +6005,7 @@ def display_faculty_timetable(faculty_name, faculty_schedule, faculty_metadata, 
 # ==================== MAIN APPLICATION ====================
 
 def main():
+    logger.info("Smart Timetable Scheduler starting")
     # Show Firebase connection status
     if firebase_manager:
         st.markdown('<div class="firebase-status firebase-connected">🔥 Firebase Connected</div>', unsafe_allow_html=True)
@@ -6285,13 +6434,14 @@ def main():
         st.markdown("---")
         
         # Tabs
-        tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "🏠 Dashboard",
             "📤 Dataset Upload", 
             "📅 Generate Timetable", 
             "📊 Generated Timetables",
             "✏️ Edit & Update Timetable",
             "🔥 Firebase Management",
+            "🤖 AI Agent",
             "📈 Reports & Analytics"
         ])
         
@@ -7962,8 +8112,18 @@ def main():
             else:
                 st.error("Firebase not connected. Please check your configuration.")
         
-        # ==================== TAB 6: REPORTS & ANALYTICS ====================
+        # ==================== TAB 6: AI AGENT ====================
         with tab6:
+            from agent.agent_ui import render_agent_tab
+            from genetic_algorithm import GeneticAlgorithm
+            render_agent_tab(
+                firebase_manager,
+                ClashDetector,
+                genetic_algorithm=GeneticAlgorithm(),
+            )
+        
+        # ==================== TAB 7: REPORTS & ANALYTICS ====================
+        with tab7:
             st.markdown("### 📈 Reports & Analytics")
             st.markdown("Generate comprehensive reports for administration and analysis.")
             
@@ -7977,6 +8137,8 @@ def main():
                         "🏢 Room Utilization Report",
                         "📚 Program Summary Report",
                         "⚠️ Clash History Report",
+                        "🤖 Agent Repair History Report",
+                        "📊 Research Metrics & Paper Exports",
                         "⚙️ Semester Configurations Report",  # CHANGE 1, 2: New report
                         "📋 Comprehensive Report (All)"
                     ],
@@ -8061,6 +8223,111 @@ def main():
                         with st.spinner("Generating clash history report..."):
                             df = report_generator.generate_clash_history_report()
                             st.dataframe(df, use_container_width=True, height=400)
+
+                elif report_type == "🤖 Agent Repair History Report":
+                    st.markdown("#### 🤖 Agent Repair History Report")
+                    st.markdown(
+                        "View all agentic repair actions saved to Firebase `/repair_history`."
+                    )
+
+                    if st.button("🔄 Generate Report", key="gen_agent_repair_report"):
+                        with st.spinner("Loading agent repair history from Firebase..."):
+                            df = report_generator.generate_agent_repair_history_report()
+                            st.dataframe(df, use_container_width=True, height=400)
+
+                            sessions = firebase_manager.get_agent_sessions(limit=20)
+                            if sessions:
+                                st.markdown("##### Recent Agent Sessions")
+                                session_rows = []
+                                for session in sessions:
+                                    session_rows.append({
+                                        'Session ID': session.get('session_id', session.get('id', '')),
+                                        'Timetable': session.get('timetable_key', ''),
+                                        'Status': session.get('status', ''),
+                                        'Clashes Found': session.get('clashes_found', 0),
+                                        'Clashes Fixed': session.get('clashes_fixed', 0),
+                                        'Turns Used': session.get('turns_used', 0),
+                                    })
+                                st.dataframe(
+                                    pd.DataFrame(session_rows),
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+
+                elif report_type == "📊 Research Metrics & Paper Exports":
+                    st.markdown("#### 📊 Research Metrics & Paper Exports")
+                    st.markdown(
+                        "Run Phase 3 research benchmarks and export CSV metrics, "
+                        "before/after schedules, conversation logs, and paper figures."
+                    )
+
+                    if st.button("🔄 Run Benchmarks & Export Bundle", key="gen_research_bundle"):
+                        with st.spinner("Running legacy vs agentic benchmarks..."):
+                            from agent.metrics_collector import MetricsCollector
+                            from agent.mock_repair_client import AutoRepairMockClient
+                            from agent.research_export import export_research_bundle
+                            from agent.scenarios import RESEARCH_SCENARIOS
+                            from genetic_algorithm import GeneticAlgorithm
+
+                            collector = MetricsCollector(
+                                firebase_manager=firebase_manager,
+                                genetic_algorithm=GeneticAlgorithm(),
+                                clash_detector_cls=ClashDetector,
+                            )
+                            client_factory = lambda sched, cons: AutoRepairMockClient(
+                                sched, cons, max_moves=30
+                            )
+                            results = collector.run_all_research_scenarios(
+                                llm_client_factory=client_factory
+                            )
+
+                            comparison_df = pd.DataFrame(
+                                collector.build_comparison_table(results)
+                            )
+                            time_df = pd.DataFrame(
+                                collector.build_time_complexity_table(results)
+                            )
+                            st.markdown("##### Table 1: Clash Resolution Comparison")
+                            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                            st.markdown("##### Table 2: Time Complexity")
+                            st.dataframe(time_df, use_container_width=True, hide_index=True)
+
+                            conversation_logs = {}
+                            schedules = {}
+                            for key, builder in RESEARCH_SCENARIOS.items():
+                                before, constraints, _, scenario_name = builder()
+                                semester = 4 if "scenario_b" in key else 2
+                                after = copy.deepcopy(before)
+                                agent_result = collector.run_agentic_repair(
+                                    after,
+                                    constraints,
+                                    scenario_name,
+                                    llm_client_factory=client_factory,
+                                    semester=semester,
+                                )
+                                session_id = agent_result.session_id or f"session_{key}"
+                                conversation_logs[session_id] = [
+                                    {"scenario": scenario_name, "metrics": agent_result.to_dict()}
+                                ]
+                                schedules[scenario_name] = {"before": before, "after": after}
+
+                            bundle = export_research_bundle(
+                                results,
+                                conversation_logs=conversation_logs,
+                                before_after_schedules=schedules,
+                            )
+                            st.session_state["last_research_bundle"] = bundle
+                            st.success("✅ Research bundle exported to research_output/")
+
+                    if st.session_state.get("last_research_bundle"):
+                        bundle = st.session_state["last_research_bundle"]
+                        st.markdown("##### Latest Export Manifest")
+                        st.json({
+                            "manifest": bundle.get("manifest"),
+                            "metrics_csv": bundle.get("metrics_csv"),
+                            "figures": bundle.get("figures"),
+                            "screenshot_figures": bundle.get("screenshot_figures"),
+                        })
                 
                 # CHANGE 1, 2: Semester Configurations Report
                 elif report_type == "⚙️ Semester Configurations Report":

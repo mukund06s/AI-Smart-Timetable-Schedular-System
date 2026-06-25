@@ -10,3 +10,11 @@ networkx
 openpyxl
 xlsxwriter
 reportlab
+
+# New — Agentic AI Layer
+anthropic>=0.30.0
+python-dotenv>=1.0.0
+matplotlib>=3.8.0
+
+# Optional — error tracking (set SENTRY_DSN to enable)
+# sentry-sdk>=1.40.0

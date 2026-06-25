@@ -1,0 +1,4 @@
+Scenario,Legacy Time (sec),Agentic Time (sec),Legacy Iterations,Agentic Turns,Time Improvement (sec)
+Scenario_A_Sem2_BTECH_2Sections,0.0,0.033,1,10,-0.033
+Scenario_B_Sem4_BTECH_2Sections,0.012,0.021,30,10,-0.009
+Scenario_C_CrossSemester_Sem2_Sem4,0.004,0.006,30,2,-0.002

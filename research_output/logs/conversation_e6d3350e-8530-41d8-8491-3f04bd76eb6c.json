@@ -1,0 +1,22 @@
+[
+  {
+    "scenario": "Scenario_B_Sem4_BTECH_2Sections",
+    "metrics": {
+      "method": "agentic_repair",
+      "scenario_name": "Scenario_B_Sem4_BTECH_2Sections",
+      "clashes_at_start": 20,
+      "clashes_after_fix": 19,
+      "clash_resolution_rate_pct": 5.0,
+      "repair_time_seconds": 0.027,
+      "iterations_or_turns": 10,
+      "escalations": 10,
+      "explainable": true,
+      "fallback_used": true,
+      "tool_call_counts": {
+        "tool_escalate": 10
+      },
+      "status": "partial",
+      "session_id": "e6d3350e-8530-41d8-8491-3f04bd76eb6c"
+    }
+  }
+]

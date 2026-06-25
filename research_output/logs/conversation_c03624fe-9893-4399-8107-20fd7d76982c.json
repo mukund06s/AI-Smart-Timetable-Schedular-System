@@ -1,0 +1,22 @@
+[
+  {
+    "scenario": "Scenario_C_CrossSemester_Sem2_Sem4",
+    "metrics": {
+      "method": "agentic_repair",
+      "scenario_name": "Scenario_C_CrossSemester_Sem2_Sem4",
+      "clashes_at_start": 2,
+      "clashes_after_fix": 0,
+      "clash_resolution_rate_pct": 100.0,
+      "repair_time_seconds": 0.007,
+      "iterations_or_turns": 2,
+      "escalations": 0,
+      "explainable": true,
+      "fallback_used": false,
+      "tool_call_counts": {
+        "tool_move_class": 2
+      },
+      "status": "completed",
+      "session_id": "c03624fe-9893-4399-8107-20fd7d76982c"
+    }
+  }
+]

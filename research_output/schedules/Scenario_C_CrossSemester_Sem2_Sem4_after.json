@@ -1,0 +1,83 @@
+{
+  "BTECH": {
+    "Sem_2_Section_A": {
+      "Monday": {
+        "09:00-10:00": {
+          "subject": "Math",
+          "faculty": "Dr. Mehta",
+          "room": "LH-102",
+          "type": "THEORY"
+        },
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      },
+      "Tuesday": {
+        "09:00-10:00": null,
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      },
+      "Wednesday": {
+        "09:00-10:00": null,
+        "10:00-11:00": null,
+        "11:00-12:00": {
+          "subject": "Networks",
+          "faculty": "Dr. CrossSem",
+          "room": "LH-401",
+          "type": "THEORY"
+        },
+        "12:00-13:00": null
+      },
+      "Thursday": {
+        "09:00-10:00": null,
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      },
+      "Friday": {
+        "09:00-10:00": null,
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      }
+    },
+    "Sem_2_Section_B": {
+      "Monday": {
+        "09:00-10:00": {
+          "subject": "Physics",
+          "faculty": "Dr. Mehta",
+          "room": "LH-101",
+          "type": "THEORY"
+        },
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      },
+      "Tuesday": {
+        "09:00-10:00": null,
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      },
+      "Wednesday": {
+        "09:00-10:00": null,
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      },
+      "Thursday": {
+        "09:00-10:00": null,
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      },
+      "Friday": {
+        "09:00-10:00": null,
+        "10:00-11:00": null,
+        "11:00-12:00": null,
+        "12:00-13:00": null
+      }
+    }
+  }
+}

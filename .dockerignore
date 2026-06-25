@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+venv/
+timetable_env/
+.env
+.streamlit/secrets.toml
+service_account.json
+research_output/local_agent_sessions/
+.git/
+.vscode/
+.idea/

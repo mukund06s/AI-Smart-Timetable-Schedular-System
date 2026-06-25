@@ -1,0 +1,248 @@
+{
+  "BTECH": {
+    "Sem_2_Section_A": {
+      "Monday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-1",
+          "faculty": "Faculty-1",
+          "room": "LH-1",
+          "type": "THEORY"
+        },
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-6",
+          "faculty": "Faculty-6",
+          "room": "LH-6",
+          "type": "THEORY"
+        },
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-11",
+          "faculty": "Faculty-5",
+          "room": "LH-3",
+          "type": "THEORY"
+        },
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-16",
+          "faculty": "Faculty-4",
+          "room": "LH-8",
+          "type": "THEORY"
+        }
+      },
+      "Tuesday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-17",
+          "faculty": "Faculty-5",
+          "room": "LH-1",
+          "type": "THEORY"
+        },
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-2",
+          "faculty": "Faculty-2",
+          "room": "LH-2",
+          "type": "THEORY"
+        },
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-7",
+          "faculty": "Faculty-1",
+          "room": "LH-7",
+          "type": "THEORY"
+        },
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-12",
+          "faculty": "Faculty-6",
+          "room": "LH-4",
+          "type": "THEORY"
+        }
+      },
+      "Wednesday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-13",
+          "faculty": "Faculty-1",
+          "room": "LH-5",
+          "type": "THEORY"
+        },
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-18",
+          "faculty": "Faculty-6",
+          "room": "LH-2",
+          "type": "THEORY"
+        },
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-3",
+          "faculty": "Faculty-3",
+          "room": "LH-3",
+          "type": "THEORY"
+        },
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-8",
+          "faculty": "Faculty-2",
+          "room": "LH-8",
+          "type": "THEORY"
+        }
+      },
+      "Thursday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-9",
+          "faculty": "Faculty-3",
+          "room": "LH-1",
+          "type": "THEORY"
+        },
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-14",
+          "faculty": "Faculty-2",
+          "room": "LH-6",
+          "type": "THEORY"
+        },
+        "11:00-12:00": null,
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-4",
+          "faculty": "Faculty-4",
+          "room": "LH-4",
+          "type": "THEORY"
+        }
+      },
+      "Friday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-5",
+          "faculty": "Faculty-5",
+          "room": "LH-5",
+          "type": "THEORY"
+        },
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-10",
+          "faculty": "Faculty-4",
+          "room": "LH-2",
+          "type": "THEORY"
+        },
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-15",
+          "faculty": "Faculty-3",
+          "room": "LH-7",
+          "type": "THEORY"
+        },
+        "12:00-13:00": null
+      }
+    },
+    "Sem_2_Section_B": {
+      "Monday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-1",
+          "faculty": "Faculty-1",
+          "room": "LH-1",
+          "type": "THEORY"
+        },
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-8",
+          "faculty": "Faculty-2",
+          "room": "LH-2",
+          "type": "THEORY"
+        },
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-13",
+          "faculty": "Faculty-1",
+          "room": "LH-7",
+          "type": "THEORY"
+        },
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-18",
+          "faculty": "Faculty-6",
+          "room": "LH-4",
+          "type": "THEORY"
+        }
+      },
+      "Tuesday": {
+        "09:00-10:00": null,
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-4",
+          "faculty": "Faculty-4",
+          "room": "LH-6",
+          "type": "THEORY"
+        },
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-9",
+          "faculty": "Faculty-3",
+          "room": "LH-3",
+          "type": "THEORY"
+        },
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-14",
+          "faculty": "Faculty-2",
+          "room": "LH-8",
+          "type": "THEORY"
+        }
+      },
+      "Wednesday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-15",
+          "faculty": "Faculty-3",
+          "room": "LH-1",
+          "type": "THEORY"
+        },
+        "10:00-11:00": null,
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-5",
+          "faculty": "Faculty-5",
+          "room": "LH-7",
+          "type": "THEORY"
+        },
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-10",
+          "faculty": "Faculty-4",
+          "room": "LH-4",
+          "type": "THEORY"
+        }
+      },
+      "Thursday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-11",
+          "faculty": "Faculty-5",
+          "room": "LH-5",
+          "type": "THEORY"
+        },
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-16",
+          "faculty": "Faculty-4",
+          "room": "LH-2",
+          "type": "THEORY"
+        },
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-1",
+          "faculty": "Faculty-1",
+          "room": "LH-3",
+          "type": "THEORY"
+        },
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-6",
+          "faculty": "Faculty-6",
+          "room": "LH-8",
+          "type": "THEORY"
+        }
+      },
+      "Friday": {
+        "09:00-10:00": {
+          "subject": "Sem2-Subject-7",
+          "faculty": "Faculty-1",
+          "room": "LH-1",
+          "type": "THEORY"
+        },
+        "10:00-11:00": {
+          "subject": "Sem2-Subject-12",
+          "faculty": "Faculty-6",
+          "room": "LH-6",
+          "type": "THEORY"
+        },
+        "11:00-12:00": {
+          "subject": "Sem2-Subject-17",
+          "faculty": "Faculty-5",
+          "room": "LH-3",
+          "type": "THEORY"
+        },
+        "12:00-13:00": {
+          "subject": "Sem2-Subject-2",
+          "faculty": "Faculty-2",
+          "room": "LH-4",
+          "type": "THEORY"
+        }
+      }
+    }
+  }
+}

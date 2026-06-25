@@ -1,0 +1,49 @@
+{
+  "alpha": 0.05,
+  "scenarios_analyzed": 3,
+  "repair_time_seconds": {
+    "legacy": {
+      "count": 3,
+      "mean": 0.005,
+      "min": 0.0,
+      "max": 0.012
+    },
+    "agentic": {
+      "count": 3,
+      "mean": 0.02,
+      "min": 0.006,
+      "max": 0.033
+    },
+    "mean_improvement_seconds": -0.015,
+    "significance_test": {
+      "test": "paired_t_test",
+      "available": true,
+      "statistic": -1.5625,
+      "p_value": 0.258591,
+      "significant_at_0_05": false
+    }
+  },
+  "resolution_rate_pct": {
+    "legacy": {
+      "count": 3,
+      "mean": 51.667,
+      "min": 5.0,
+      "max": 100.0
+    },
+    "agentic": {
+      "count": 3,
+      "mean": 51.667,
+      "min": 5.0,
+      "max": 100.0
+    },
+    "mean_improvement_pct": 0.0,
+    "significance_test": {
+      "test": "paired_t_test",
+      "available": true,
+      "statistic": 0.0,
+      "p_value": 1.0,
+      "significant_at_0_05": false
+    }
+  },
+  "interpretation": "Repair time difference is not statistically significant (p=0.258591). Resolution rate difference is not statistically significant (p=1.0)."
+}

@@ -1,0 +1,22 @@
+[
+  {
+    "scenario": "Scenario_A_Sem2_BTECH_2Sections",
+    "metrics": {
+      "method": "agentic_repair",
+      "scenario_name": "Scenario_A_Sem2_BTECH_2Sections",
+      "clashes_at_start": 2,
+      "clashes_after_fix": 1,
+      "clash_resolution_rate_pct": 50.0,
+      "repair_time_seconds": 0.033,
+      "iterations_or_turns": 10,
+      "escalations": 0,
+      "explainable": true,
+      "fallback_used": true,
+      "tool_call_counts": {
+        "tool_move_class": 10
+      },
+      "status": "max_turns_exceeded",
+      "session_id": "a0571101-f90c-464f-b670-113686399a31"
+    }
+  }
+]

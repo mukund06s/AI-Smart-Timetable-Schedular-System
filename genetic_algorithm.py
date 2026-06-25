@@ -313,7 +313,7 @@ class GeneticAlgorithm:
                         school_key, school_type, year, batch, subjects,
                         faculties, rooms, all_slots, available_slots,
                         faculty_tracker, room_tracker, morning_counts,
-                        faculty_lunch_unions, program
+                        faculty_lunch_unions, program, _skip_electives
                     )
 
         return individual
@@ -321,8 +321,9 @@ class GeneticAlgorithm:
     def _create_batch_schedule(self, school_key, school_type, year, batch, subjects, 
                                faculties, rooms, all_slots, available_slots,
                                faculty_tracker, room_tracker, morning_counts,
-                               faculty_lunch_unions, program=None):
+                               faculty_lunch_unions, program=None, skip_electives=None):
         """Create schedule for a single batch with all constraints"""
+        skip_electives = skip_electives or set()
         batch_schedule = {}
         
         for day in self.days:
@@ -376,7 +377,7 @@ class GeneticAlgorithm:
 
             # Skip non-primary electives (only the first in each elective group is scheduled)
             _sn_check = str(s.get('name', '')).strip().upper()
-            if _sn_check in _skip_electives:
+            if _sn_check in skip_electives:
                 continue
                 
             is_lab = any(t in str(s.get('type', '')).upper() for t in ['LAB', 'TUTORIAL', 'PRACTICAL'])

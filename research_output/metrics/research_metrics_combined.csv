@@ -1,0 +1,10 @@
+Scenario,Method,Clashes At Start,Clashes After Fix,Resolution Rate %,Repair Time (sec),Turns/Iterations,Escalations,Explainable,Legacy Time (sec),Agentic Time (sec),Legacy Iterations,Agentic Turns,Time Improvement (sec)
+Scenario_A_Sem2_BTECH_2Sections,Legacy Intelligent Repair,2.0,0.0,100.0,0.0,1.0,0.0,False,,,,,
+Scenario_A_Sem2_BTECH_2Sections,Agentic Repair,2.0,1.0,50.0,0.033,10.0,0.0,True,,,,,
+Scenario_B_Sem4_BTECH_2Sections,Legacy Intelligent Repair,20.0,19.0,5.0,0.012,30.0,0.0,False,,,,,
+Scenario_B_Sem4_BTECH_2Sections,Agentic Repair,20.0,19.0,5.0,0.021,10.0,10.0,True,,,,,
+Scenario_C_CrossSemester_Sem2_Sem4,Legacy Intelligent Repair,2.0,1.0,50.0,0.004,30.0,0.0,False,,,,,
+Scenario_C_CrossSemester_Sem2_Sem4,Agentic Repair,2.0,0.0,100.0,0.006,2.0,0.0,True,,,,,
+Scenario_A_Sem2_BTECH_2Sections,,,,,,,,,0.0,0.033,1.0,10.0,-0.033
+Scenario_B_Sem4_BTECH_2Sections,,,,,,,,,0.012,0.021,30.0,10.0,-0.009
+Scenario_C_CrossSemester_Sem2_Sem4,,,,,,,,,0.004,0.006,30.0,2.0,-0.002
