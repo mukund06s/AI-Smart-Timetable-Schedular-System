@@ -1,5 +1,5 @@
 # AI-Smart-Timetable-Schedular-System
-AI-powered scheduling for smarter campuses
+AI-powered scheduling for smarter campuses.
 
 An AI-driven smart classroom and academic timetable scheduling system designed for colleges and universities.
 The system automatically generates optimized, clash-free timetables by considering faculty availability, room constraints, program-wise lunch timings, workload balance, and institutional rules.
