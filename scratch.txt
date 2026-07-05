@@ -1,0 +1,352 @@
+--- timetable_Sem2__Sec_A (11).pdf ---
+Time Table AY 2026-27 wef 04.07.2026
+ STME Sem2 Sec A
+ 
+Day
+09:00 to 10:00
+10:00 to 11:00
+11:00 to 11:50
+11:50 to 12:50
+12:50 to 13:50
+13:50 to 14:00
+14:00 to 15:00
+15:00 to 16:00
+Monday
+Constitution of Indi
+LAW FACULTY- Ka
+CR 313
+ Quantum Physics
+MJ
+CR 314
+ LUNCH
+(50 min)
+ FREE
+ Product Realization
+PS
+CR 314
+ BREAK
+(10 min)
+ Object Oriented Prog
+ RD
+CR 314
+ Basic Electrical and
+AP
+CR 313
+ 
+Tuesday
+Linear Algebra and D
+ AS
+CR 313
+ Linear Algebra and D
+ AS
+CR 314
+ LUNCH
+(50 min)
+ Quantum Physics
+MJ
+CR 314
+ Linear Algebra and D
+ AS
+CR 313
+ BREAK
+(10 min)
+ 
+ English Communicatio Batch
+ 01
+AC CC 201
+---
+ Linear Algebra and D Batch 02
+ AS CC 202
+ 
+ English Communicatio Batch
+ 01
+AC CC 201
+---
+ Linear Algebra and D Batch 02
+ AS CC 202
+ 
+Wednesday
+ 
+ Quantum Physics Lab Batch
+ 01
+MJ physics la
+---
+ Web Development Lab Batch
+ 02
+ PM (Praveen mod Physic 2
+ 
+ Quantum Physics Lab Batch
+ 01
+MJ physics la
+---
+ Web Development Lab Batch
+ 02
+ PM (Praveen mod Physic 2
+ LUNCH
+(50 min)
+ 
+ Basic Electrical and Batch 01
+ AP CL 201
+---
+ English Communicatio Batch
+ 02
+AC physics la
+ 
+ Basic Electrical and Batch 01
+ AP CL 201
+---
+ English Communicatio Batch
+ 02
+AC physics la
+ BREAK
+(10 min)
+ Basic Electrical and
+AP
+CR 314
+ 
+ Web Development Tuto Batch
+ 01
+SG Physic 2
+---
+ Web Development Tuto Batch
+ 02
+SG CC 201
+ 
+Thursday
+ 
+ Web Development Lab Batch
+ 01
+ PM (Praveen mod LL 201
+ ---
+ Web Development Tuto Batch
+ 02
+SG physics la
+ 
+ Web Development Lab Batch
+ 01
+ PM (Praveen mod LL 201
+ LUNCH
+(50 min)
+ 
+ Linear Algebra and D Batch 01
+ AS CC 202
+---
+ Object Oriented Prog Batch 02
+ RD EI lab
+ 
+ Linear Algebra and D Batch 01
+ AS CC 202
+---
+ Object Oriented Prog Batch 02
+ RD EI lab
+ BREAK
+(10 min)
+ Object Oriented Prog
+ RD
+CR 314
+ FREE
+ 
+Friday
+ 
+ Product Realization Batch 01
+ PS LL 201
+---
+ Quantum Physics Lab Batch
+ 02
+MJ CC 201
+ 
+ Product Realization Batch 01
+ PS LL 201
+---
+ Quantum Physics Lab Batch
+ 02
+MJ CC 201
+ LUNCH
+(50 min)
+ 
+ Web Development Tuto Batch
+ 01
+SG CC 202
+---
+ Basic Electrical and Batch 02
+ AP LL 201
+ 
+ Basic Electrical and Batch 02
+ AP LL 201
+ BREAK
+(10 min)
+ 
+ Object Oriented Prog Batch 01
+ RD CC 201
+---
+ Product Realization Batch 02
+ PS Physic 2
+ 
+ Object Oriented Prog Batch 01
+ RD CC 201
+---
+ Product Realization Batch 02
+ PS Physic 2
+ 
+ Generated on: 2026-07-04 02:12
+ 
+
+--- timetable_Sem2__Sec_B.pdf ---
+Time Table AY 2026-27 wef 04.07.2026
+ STME Sem2 Sec B
+ 
+Day
+09:00 to 10:00
+10:00 to 11:00
+11:00 to 11:50
+11:50 to 12:50
+12:50 to 13:50
+13:50 to 14:00
+14:00 to 15:00
+15:00 to 16:00
+Monday
+ 
+ Linear Algebra and D Batch 01
+ AS EI lab
+---
+ Object Oriented Prog Batch 02
+ RD CC 201
+ 
+ Linear Algebra and D Batch 01
+ AS EI lab
+---
+ Object Oriented Prog Batch 02
+ RD CC 201
+ LUNCH
+(50 min)
+ 
+ Web Development Tuto Batch
+ 01
+ PM (Praveen mod CC 202
+ ---
+ Basic Electrical and Batch 02
+AP physics la
+ 
+ Basic Electrical and Batch 02
+AP physics la
+ BREAK
+(10 min)
+ 
+ Product Realization Batch 01
+ PS LL 201
+---
+ Quantum Physics Lab Batch
+ 02
+MJ CL 201
+ 
+ Product Realization Batch 01
+ PS LL 201
+---
+ Quantum Physics Lab Batch
+ 02
+MJ CL 201
+ 
+Tuesday
+Constitution of Indi
+LAW FACULTY- Ka
+CR 314
+ FREE
+ LUNCH
+(50 min)
+ Object Oriented Prog
+ RD
+CR 313
+ Basic Electrical and
+AP
+CR 314
+ BREAK
+(10 min)
+ Quantum Physics
+MJ
+CR 314
+ Object Oriented Prog
+ RD
+CR 313
+ 
+Wednesday
+Object Oriented Prog
+ RD
+CR 314
+ Linear Algebra and D
+ AS
+CR 313
+ LUNCH
+(50 min)
+ Linear Algebra and D
+ AS
+CR 314
+ Quantum Physics
+MJ
+CR 313
+ BREAK
+(10 min)
+ 
+ English Communicatio Batch
+ 01
+AC physics la
+---
+ Linear Algebra and D Batch 02
+ AS Physic 2
+ 
+ English Communicatio Batch
+ 01
+AC physics la
+---
+ Linear Algebra and D Batch 02
+ AS Physic 2
+ 
+Thursday
+Product Realization
+PS
+CR 314
+ Basic Electrical and
+AP
+CR 314
+ LUNCH
+(50 min)
+ Quantum Physics
+MJ
+CR 313
+ FREE
+ BREAK
+(10 min)
+ 
+ Web Development Tuto Batch
+ 01
+ PM (Praveen mod Physic 2
+ ---
+ Basic Electrical and Batch 02
+ AP CC 201
+ 
+ Basic Electrical and Batch 02
+ AP CC 201
+ 
+Friday
+Basic Electrical and
+AP
+CR 313
+ Object Oriented Prog
+ RD
+CR 314
+ LUNCH
+(50 min)
+ FREE
+ 
+ Web Development Lab Batch
+ 01
+ PM (Praveen mod Physic 2
+ BREAK
+(10 min)
+ FREE
+ Linear Algebra and D
+ AS
+CR 313
+ 
+ Generated on: 2026-07-04 02:14
+ 
+

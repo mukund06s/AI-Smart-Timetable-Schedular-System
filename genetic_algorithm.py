@@ -17,6 +17,7 @@ SCHOOL_LUNCH_TIMES = {
 # CHANGE 1: Program-based default lunch times
 PROGRAM_LUNCH_TIMES = {
     'BTECH': '13:00-13:50',
+    'BTECH_AIDS': '13:00-13:50',
     'MBATECH': '13:00-13:50',
     'BBA': '11:00-11:50',
     'BCOM': '11:00-11:50',
@@ -198,7 +199,7 @@ class GeneticAlgorithm:
     
     def get_program_from_key(self, school_key):
         """Extract program from school key"""
-        for program in ['BTECH', 'MBATECH', 'BBA', 'BCOM', 'LAW']:
+        for program in ['BTECH_AIDS', 'BTECH', 'MBATECH', 'BBA', 'BCOM', 'LAW']:
             if program in school_key:
                 return program
         return 'BTECH'
@@ -542,6 +543,7 @@ class GeneticAlgorithm:
                             'subject_code': subj.get('code', ''),
                             'faculty': faculty,
                             'room': room_name,
+                            'room_locked': subj.get('assigned_room') is not None,  # ROOM-FIX
                             'type': 'Lab' if is_lab_str else 'Tutorial',
                             'duration': slot1['duration'],
                             'start': slot1['start'],
@@ -559,6 +561,7 @@ class GeneticAlgorithm:
                             'subject_code': subj.get('code', ''),
                             'faculty': faculty,
                             'room': room_name,
+                            'room_locked': subj.get('assigned_room') is not None,  # ROOM-FIX
                             'type': 'Lab (Part 1)' if is_lab_str else 'Tutorial (Part 1)',
                             'duration': slot1['duration'],
                             'start': slot1['start'],
@@ -639,6 +642,7 @@ class GeneticAlgorithm:
                                 'subject_code': subject.get('code', ''),
                                 'faculty': faculty,
                                 'room': room_name,
+                                'room_locked': subject.get('assigned_room') is not None,  # ROOM-FIX
                                 'type': subject.get('type', 'Theory'),
                                 'duration': slot['duration'],
                                 'start': slot['start'],
@@ -795,6 +799,7 @@ class GeneticAlgorithm:
                         'subject_code': subject.get('code', ''),
                         'faculty': faculty,
                         'room': room_name,
+                        'room_locked': subject.get('assigned_room') is not None, # ROOM-FIX
                         'type': 'Lab (Part 1)',
                         'duration': slot1['duration'],
                         'start': slot1['start'],
@@ -807,6 +812,7 @@ class GeneticAlgorithm:
                         'subject_code': subject.get('code', ''),
                         'faculty': faculty,
                         'room': room_name,
+                        'room_locked': subject.get('assigned_room') is not None, # ROOM-FIX
                         'type': 'Lab (Part 2)',
                         'duration': slot2['duration'],
                         'start': slot2['start'],
@@ -1323,6 +1329,9 @@ class GeneticAlgorithm:
                             schedule[school][batch][day2][slot2] = temp
         
         elif mutation_type == 'change_room':
+            # ROOM-FIX: Only change rooms for classes that do NOT have a
+            # dataset-assigned (locked) room.  This ensures the Room Dataset
+            # mapping is always respected.
             if rooms and schedule:
                 school = random.choice(list(schedule.keys()))
                 if schedule[school]:
@@ -1330,18 +1339,22 @@ class GeneticAlgorithm:
                     day = random.choice(self.days)
                     available_slots = self.get_available_slots(constraints)
                     slot_keys = [self.slot_generator.get_slot_key(s) for s in available_slots]
-                    
+
                     if slot_keys and day in schedule[school][batch]:
                         slot = random.choice(slot_keys)
                         if schedule[school][batch][day].get(slot):
                             class_info = schedule[school][batch][day][slot]
                             if isinstance(class_info, dict) and class_info.get('type') not in ['LUNCH', 'BREAK']:
-                                new_room = random.choice(rooms)
-                                schedule[school][batch][day][slot]['room'] = new_room.get('name', 'TBD')
+                                # Skip if this room is locked (pre-assigned from Room Dataset)
+                                if not class_info.get('room_locked', False):
+                                    new_room = random.choice(rooms)
+                                    schedule[school][batch][day][slot]['room'] = new_room.get('name', 'TBD')
                             elif isinstance(class_info, list):
-                                new_room = random.choice(rooms)
                                 for ci in class_info:
-                                    ci['room'] = new_room.get('name', 'TBD')
+                                    # Skip locked items in list (e.g. parallel labs)
+                                    if not ci.get('room_locked', False):
+                                        new_room = random.choice(rooms)
+                                        ci['room'] = new_room.get('name', 'TBD')
         
         elif mutation_type == 'move_class':
             if schedule:

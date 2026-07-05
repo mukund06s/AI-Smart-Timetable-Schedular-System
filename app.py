@@ -96,6 +96,13 @@ PROGRAM_CONFIG = {
         'default_lunch_start': '13:00',
         'default_lunch_duration': 50
     },
+    'BTECH_AIDS': {
+        'school': 'STME',
+        'name': 'Bachelor of Technology - AIDS',
+        'semesters': 8,
+        'default_lunch_start': '13:00',
+        'default_lunch_duration': 50
+    },
     'MBATECH': {
         'school': 'STME',
         'name': 'MBA in Technology',
@@ -129,7 +136,7 @@ PROGRAM_CONFIG = {
 SCHOOL_CONFIG = {
     'STME': {
         'name': 'School of Technology, Management and Engineering',
-        'programs': ['BTECH', 'MBATECH'],
+        'programs': ['BTECH', 'BTECH_AIDS', 'MBATECH'],
         'default_lunch_start': '13:00',
         'default_lunch_duration': 50
     },
@@ -2036,15 +2043,27 @@ class RoomAllocator:
                 subject = record.get('Subject', '')
                 class_type = record.get('Class Type', 'theory').lower()
                 room_no = record.get('Room No.', '')
+                section = str(record.get('Section', '')).strip().upper()
 
                 if subject and room_no:
                     # Store under the NORMALIZED (suffix-stripped) key
-                    norm_key = f"{_normalize_subj(subject)}_{class_type}"
-                    room_mapping[norm_key] = room_no
+                    norm_base = f"{_normalize_subj(subject)}_{class_type}"
+                    orig_base = f"{subject}_{class_type}"
+                    
+                    norm_key = f"{norm_base}_{section}" if section else norm_base
+                    orig_key = f"{orig_base}_{section}" if section else orig_base
+                    
+                    if norm_key not in room_mapping:
+                        room_mapping[norm_key] = []
+                    if room_no not in room_mapping[norm_key]:
+                        room_mapping[norm_key].append(room_no)
+                    
                     # Also store under the original key as a fallback
-                    orig_key = f"{subject}_{class_type}"
                     if orig_key != norm_key:
-                        room_mapping[orig_key] = room_no
+                        if orig_key not in room_mapping:
+                            room_mapping[orig_key] = []
+                        if room_no not in room_mapping[orig_key]:
+                            room_mapping[orig_key].append(room_no)
         
         # Get all available rooms
         all_rooms = self.firebase.get_rooms_list()
@@ -2060,66 +2079,54 @@ class RoomAllocator:
         room_usage_count = defaultdict(int)
         
         allocations = {}
+        for k, v in room_mapping.items():
+            allocations[k] = list(v)
+            
         unallocated = []
         
         for record in info_data['data']:
             module_name = record.get('Module Name', '')
             stripped_name = _normalize_subj(module_name)
+            section = str(record.get('Section', '')).strip().upper()
             
-            # CHANGE PARALLEL-LAB-FIX-4: Ensure exact keys are preserved while looking up norm keys
-            # Theory allocation
-            if record.get('Theory Hrs/Week', 0) > 0:
-                key_to_set = f"{module_name}_theory"
-                mapped_room = None
-                for k in [f"{stripped_name}_theory", key_to_set]:
-                    if k in room_mapping:
-                        mapped_room = room_mapping[k]
-                        break
-                if mapped_room:
-                    allocations[key_to_set] = mapped_room
-                else:
-                    available = sorted(theory_rooms, key=lambda r: room_usage_count[r])
-                    if available:
-                        allocations[key_to_set] = available[0]
-                        room_usage_count[available[0]] += 1
-                    else:
-                        unallocated.append(key_to_set)
+            def _is_allocated(suffix):
+                keys = [
+                    f"{stripped_name}_{suffix}_{section}" if section else None,
+                    f"{module_name}_{suffix}_{section}" if section else None,
+                    f"{stripped_name}_{suffix}",
+                    f"{module_name}_{suffix}"
+                ]
+                return any(k in allocations for k in filter(None, keys))
             
-            # Lab allocation
-            if record.get('Practical Hrs/Week', 0) > 0:
-                key_to_set = f"{module_name}_lab"
-                mapped_room = None
-                for k in [f"{stripped_name}_lab", key_to_set]:
-                    if k in room_mapping:
-                        mapped_room = room_mapping[k]
-                        break
-                if mapped_room:
-                    allocations[key_to_set] = mapped_room
+            # Theory allocation for unmapped subjects
+            if record.get('Theory Hrs/Week', 0) > 0 and not _is_allocated("theory"):
+                key_to_set = f"{module_name}_theory_{section}" if section else f"{module_name}_theory"
+                available = sorted(theory_rooms, key=lambda r: room_usage_count[r])
+                if available:
+                    allocations.setdefault(key_to_set, []).append(available[0])
+                    room_usage_count[available[0]] += 1
                 else:
-                    available = sorted(lab_rooms, key=lambda r: room_usage_count[r])
-                    if available:
-                        allocations[key_to_set] = available[0]
-                        room_usage_count[available[0]] += 1
-                    else:
-                        unallocated.append(key_to_set)
+                    unallocated.append(key_to_set)
             
-            # Tutorial allocation
-            if record.get('Tutorial Hrs/Week', 0) > 0:
-                key_to_set = f"{module_name}_tutorial"
-                mapped_room = None
-                for k in [f"{stripped_name}_tutorial", key_to_set]:
-                    if k in room_mapping:
-                        mapped_room = room_mapping[k]
-                        break
-                if mapped_room:
-                    allocations[key_to_set] = mapped_room
+            # Lab allocation for unmapped subjects
+            if record.get('Practical Hrs/Week', 0) > 0 and not _is_allocated("lab"):
+                key_to_set = f"{module_name}_lab_{section}" if section else f"{module_name}_lab"
+                available = sorted(lab_rooms, key=lambda r: room_usage_count[r])
+                if available:
+                    allocations.setdefault(key_to_set, []).append(available[0])
+                    room_usage_count[available[0]] += 1
                 else:
-                    available = sorted(theory_rooms, key=lambda r: room_usage_count[r])
-                    if available:
-                        allocations[key_to_set] = available[0]
-                        room_usage_count[available[0]] += 1
-                    else:
-                        unallocated.append(key_to_set)
+                    unallocated.append(key_to_set)
+            
+            # Tutorial allocation for unmapped subjects
+            if record.get('Tutorial Hrs/Week', 0) > 0 and not _is_allocated("tutorial"):
+                key_to_set = f"{module_name}_tutorial_{section}" if section else f"{module_name}_tutorial"
+                available = sorted(theory_rooms, key=lambda r: room_usage_count[r])
+                if available:
+                    allocations.setdefault(key_to_set, []).append(available[0])
+                    room_usage_count[available[0]] += 1
+                else:
+                    unallocated.append(key_to_set)
         
         # Save allocations to Firebase
         self.firebase.save_room_allocation(program, semester, allocations)
@@ -2732,7 +2739,7 @@ class DatasetUploadManager:
         
         required_columns = ['Subject', 'Class Type', 'Room No.']
         
-        # Check for required columns
+        # Check for required columns (Section is optional)
         missing_cols = [col for col in required_columns if col not in df.columns]
         if missing_cols:
             errors.append(f"Missing required columns: {', '.join(missing_cols)}")
@@ -2747,7 +2754,8 @@ class DatasetUploadManager:
                 record = {
                     'Subject': str(row['Subject']).strip() if pd.notna(row['Subject']) else '',
                     'Class Type': class_type,
-                    'Room No.': str(row['Room No.']).strip() if pd.notna(row['Room No.']) else ''
+                    'Room No.': str(row['Room No.']).strip() if pd.notna(row['Room No.']) else '',
+                    'Section': str(row['Section']).strip().upper() if 'Section' in df.columns and pd.notna(row['Section']) else ''
                 }
                 
                 # Validate class type
@@ -3334,24 +3342,50 @@ class SmartTimetableScheduler:
                 overall_progress.progress(5)
                 time_module.sleep(0.3)
             
-            # Apply room allocations
+            # Apply room allocations - STRICT: each subject gets ONLY the room from the dataset
+            # Keys in room_allocations: "Subject_type_Section" (e.g. "Quantum Physics_lab_A")
+            # Section-specific keys are tried first before generic fallbacks.
             if room_allocations:
-                status_text.info("📦 Applying room allocations...")
+                status_text.info("Applying strict room assignments from Room Dataset...")
                 for subject in subjects:
                     raw_name  = subject.get('name', '')
                     class_type = subject.get('type', 'Theory').lower()
-                    # FIXED: Try multiple key variants to handle inconsistent naming
-                    # in the room_dataset (e.g. "OOP Lab" vs "OOP").
-                    stripped_name = raw_name.replace(' Lab', '').replace(' Tutorial', '').replace(' Practical', '').strip()
-                    keys_to_try = [
-                        f"{stripped_name}_{class_type}",   # normalised  e.g. "OOP_lab"
-                        f"{raw_name}_{class_type}",         # original    e.g. "OOP Lab_lab"
-                        f"{stripped_name}_lab",             # force lab
-                        f"{stripped_name}_theory",          # force theory
+                    sec_str = str(subject.get('section', '')).strip().upper()
+                    
+                    # Strip Lab/Tutorial/Practical suffix to get base name
+                    stripped_name = raw_name
+                    for sfx in (' Lab', ' Tutorial', ' Practical'):
+                        if stripped_name.lower().endswith(sfx.lower()):
+                            stripped_name = stripped_name[:-len(sfx)].strip()
+                            break
+                    
+                    # Try section-specific keys first, then generic fallbacks
+                    keys_to_try = []
+                    if sec_str:
+                        keys_to_try += [
+                            f"{stripped_name}_{class_type}_{sec_str}",
+                            f"{raw_name}_{class_type}_{sec_str}",
+                        ]
+                        if class_type == 'lab':
+                            keys_to_try.append(f"{stripped_name}_lab_{sec_str}")
+                        else:
+                            keys_to_try.append(f"{stripped_name}_theory_{sec_str}")
+                            keys_to_try.append(f"{stripped_name}_tutorial_{sec_str}")
+                    # Generic fallbacks (no section suffix)
+                    keys_to_try += [
+                        f"{stripped_name}_{class_type}",
+                        f"{raw_name}_{class_type}",
+                        f"{stripped_name}_lab" if class_type == 'lab' else f"{stripped_name}_theory",
                     ]
+                    
                     for k in keys_to_try:
                         if k in room_allocations:
-                            subject['assigned_room'] = room_allocations[k]
+                            val = room_allocations[k]
+                            # val is a list; key is already section-specific so take val[0]
+                            if isinstance(val, list) and len(val) > 0:
+                                subject['assigned_room'] = val[0]
+                            elif isinstance(val, str) and val:
+                                subject['assigned_room'] = val
                             break
                 overall_progress.progress(10)
                 time_module.sleep(0.3)
@@ -3923,15 +3957,19 @@ class SmartTimetableScheduler:
                         if isinstance(current, dict) and current.get('type') in ['LUNCH', 'BREAK']:
                             continue
                         
+                        # ROOM-FIX: track whether room came from dataset (locked) or fallback
                         if class_info.get('room') and class_info['room'] != 'TBD':
                             room_name = class_info['room']
+                            room_is_locked = True   # from Room Dataset - never overwrite
                         elif rooms:
                             room = rooms[room_index % len(rooms)]
                             room_name = room.get('name', 'TBD')
                             room_index += 1
+                            room_is_locked = False
                         else:
                             room_name = 'TBD'
-                        
+                            room_is_locked = False
+
                         # Find slot info
                         slot_info = next((s for s in time_slots 
                                          if TimeSlotManager.get_slot_key(s) == slot_key), None)
@@ -3940,6 +3978,7 @@ class SmartTimetableScheduler:
                             'subject': class_info['subject'],
                             'faculty': class_info['faculty'],
                             'room': room_name,
+                            'room_locked': room_is_locked,   # ROOM-FIX: preserved through GA
                             'type': class_info['type'],
                             'duration': class_info.get('duration', DEFAULT_LECTURE_DURATION),
                             'start': slot_info['start'] if slot_info else '',
@@ -4150,7 +4189,8 @@ class SmartTimetableScheduler:
                         for subj in sec_subjects:
                             wh = int(subj.get('weekly_hours', 3) or 3)
                             faculty = subj.get('faculty', 'TBD') or 'TBD'
-                            room = subj.get('room', 'TBD') or 'TBD'
+                            # STRICT: prefer assigned_room, then fall back to 'room' key
+                            room = subj.get('assigned_room') or subj.get('room', 'TBD') or 'TBD'
                             scheduled = 0
                             for day in days:
                                 if scheduled >= wh:
@@ -4169,14 +4209,16 @@ class SmartTimetableScheduler:
                                             continue  # faculty busy within this semester
                                     if room != 'TBD':
                                         if day_sk in _room_blocked[room]:
-                                            continue
+                                            continue  # room busy in another semester
                                         if day_sk in room_used[room]:
-                                            continue
+                                            continue  # room busy within this semester
+                                        # STRICT: room is assigned — if occupied we skip, never substitute
                                     # Place the class
                                     batch_schedule[day][sk] = {
                                         'subject': subj['name'],
                                         'faculty': faculty,
                                         'room': room,
+                                        'room_locked': room != 'TBD',   # ROOM-FIX: lock dataset rooms
                                         'type': subj.get('type', 'Theory'),
                                         'batch': str(subj.get('batch', '')),
                                         'section': sec_letter,
@@ -4318,10 +4360,12 @@ class SmartTimetableScheduler:
                     _sections_for_year = sorted(
                         school_data.get('section_batches', {}).get(year, {}).keys()
                     )  # e.g. ['A', 'B']
-                    _sec_letter = (_sections_for_year[batch - 1]
-                                   if _sections_for_year and isinstance(batch, int)
-                                      and 0 < batch <= len(_sections_for_year)
-                                   else None)
+                    if _sections_for_year and isinstance(batch, int) and 0 < batch <= len(_sections_for_year):
+                        _sec_letter = _sections_for_year[batch - 1]
+                    elif isinstance(batch, int):
+                        _sec_letter = chr(64 + batch)
+                    else:
+                        _sec_letter = None
 
                     def _subj_matches_section(s):
                         """True if the subject record belongs to this section."""
@@ -4390,6 +4434,9 @@ class SmartTimetableScheduler:
                                             room_name = subject['assigned_room']
                                             if key not in room_tracker[room_name][key]:
                                                 room_found = {'name': room_name}
+                                            else:
+                                                # STRICT: assigned room is occupied — skip this slot entirely
+                                                continue
                                         else:
                                             for room in rooms:
                                                 if key not in room_tracker[room['name']][key]:
@@ -4406,6 +4453,7 @@ class SmartTimetableScheduler:
                                                 'subject_code': subject.get('code', ''),
                                                 'faculty': faculty,
                                                 'room': room_found['name'],
+                                                'room_locked': True,   # ROOM-FIX: GA path, always locked
                                                 'type': subject.get('type', 'Theory'),
                                                 'duration': slot_info['duration'] if slot_info else DEFAULT_LECTURE_DURATION,
                                                 'start': slot_info['start'] if slot_info else '',
@@ -4486,18 +4534,26 @@ class SmartTimetableScheduler:
 
                                     # Room
                                     room_name = subj.get('assigned_room') or _subj_room_cache.get(subj.get('name'))
-                                    if not room_name or key in room_tracker[room_name][key]:
-                                        # Fallback to any available lab room
-                                        cand = [r['name'] for r in rooms if r.get('type','').lower() in ('lab','practical')]
+                                    if room_name:
+                                        # Strict mode: If room is assigned, we MUST use it. No fallbacks.
+                                        if key in room_tracker[room_name][key]:
+                                            room_name = None # Occupied, fail to place in this slot.
+                                    else:
+                                        # No assigned room, fallback to any available lab room
+                                        cand = [r['name'] for r in rooms if r.get('type', '').lower() in ('lab', 'practical')]
                                         random.shuffle(cand)
                                         room_name = next((r_name for r_name in cand if key not in room_tracker[r_name][key]), None)
                                     
                                     if not room_name:
                                         can_place = False; break
                                     
-                                    # Ensure unique room for this slot planning
+                                    # Ensure unique room and faculty for this slot planning
                                     if any(r == room_name for _, r in resources_planned):
                                         can_place = False; break
+                                    if fac != 'TBD' and any(f == fac for f, _ in resources_planned):
+                                        can_place = False; break
+                                    
+                                    resources_planned.append((fac, room_name))
                                     
                                     slot_info = next((s for s in time_slots if TimeSlotManager.get_slot_key(s) == slot_key), None)
                                     temp_entries.append({
@@ -4505,6 +4561,7 @@ class SmartTimetableScheduler:
                                         'subject_code': subj.get('code', ''),
                                         'faculty': fac,
                                         'room': room_name,
+                                        'room_locked': True,   # ROOM-FIX: lab path, always locked
                                         'batch': str(subj.get('batch', '1')),
                                         'type': 'Lab',
                                         'duration': slot_info['duration'] if slot_info else 60,
@@ -6217,12 +6274,19 @@ def main():
                     for _s in _sections_list:
                         _sb.setdefault(_s, [1])
 
-                    # ---- Add Section button (auto-increments letter) ----
-                    _next_letter = chr(ord('A') + len(_sections_list))
+                    # ---- Add Section button (finds first missing letter) ----
+                    _next_letter = 'A'
+                    for i in range(26):
+                        _cand = chr(ord('A') + i)
+                        if _cand not in _sections_list:
+                            _next_letter = _cand
+                            break
+                    
                     if st.button(f"➕ Add Section {_next_letter}",
                                  key=f"sb_add_sec_{program_key}_{selected_semester}"):
                         if _next_letter not in _sections_list:
                             _sections_list.append(_next_letter)
+                            _sections_list.sort() # Keep sections alphabetical
                             _sb[_next_letter] = [1]
                             st.rerun()
 
@@ -6851,7 +6915,7 @@ def main():
                             
                             with st.expander("📋 Room Allocation Summary", expanded=True):
                                 alloc_df = pd.DataFrame([
-                                    {'Subject': k.rsplit('_', 1)[0], 'Type': k.rsplit('_', 1)[1], 'Room': v}
+                                    {'Subject': k.rsplit('_', 1)[0], 'Type': k.rsplit('_', 1)[1], 'Room': ", ".join(v) if isinstance(v, list) else v}
                                     for k, v in allocations.items()
                                 ])
                                 st.dataframe(alloc_df, use_container_width=True)
@@ -7041,6 +7105,12 @@ def main():
                             scheduler.elective_groups = list(
                                 st.session_state.get('elective_groups', [])
                             )
+
+                            # Always re-allocate rooms based on the current dataset in Firebase before generation
+                            room_allocator = RoomAllocator(firebase_manager)
+                            allocations, _ = room_allocator.allocate_rooms(current_program, current_semester)
+                            if allocations:
+                                st.session_state.room_allocations = allocations
 
                             schedule, semester_config = scheduler.generate_hybrid_timetable(
                                 st.session_state.schools_data,
