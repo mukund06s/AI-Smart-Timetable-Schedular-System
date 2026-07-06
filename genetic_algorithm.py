@@ -411,26 +411,34 @@ class GeneticAlgorithm:
                     labs_by_batch[b_val].append({'subject': lab, 'hours': 1})
                     remaining -= 1
                 
-        # Sort values internally to pair reliably
-        for b_val in labs_by_batch.keys():
-            labs_by_batch[b_val].sort(key=lambda x: str(x['subject'].get('name', '')))
-            
-        # Rotate lab lists so different batches get different labs at the same time
+        # Smartly form parallel blocks avoiding faculty clashes
         batch_keys = list(labs_by_batch.keys())
-        for b_idx, b_key in enumerate(batch_keys):
-            lst = labs_by_batch[b_key]
-            if b_idx > 0 and len(lst) > 0:
-                shift = b_idx % len(lst)
-                labs_by_batch[b_key] = lst[shift:] + lst[:shift]
-                
-        # Form parallel blocks
-        max_lab_sessions = max([len(lst) for lst in labs_by_batch.values()]) if labs_by_batch else 0
         parallel_blocks = []
-        for i in range(max_lab_sessions):
+        
+        remaining_labs = {b_key: list(labs_by_batch[b_key]) for b_key in batch_keys}
+        
+        while any(remaining_labs.values()):
             block = []
+            used_faculties = set()
+            
             for b_key in batch_keys:
-                if i < len(labs_by_batch[b_key]):
-                    block.append(labs_by_batch[b_key][i])
+                if not remaining_labs[b_key]:
+                    continue
+                    
+                selected_idx = -1
+                for i, item in enumerate(remaining_labs[b_key]):
+                    faculty = item['subject'].get('faculty', 'TBD')
+                    if faculty == 'TBD' or faculty not in used_faculties:
+                        selected_idx = i
+                        break
+                        
+                if selected_idx != -1:
+                    item = remaining_labs[b_key].pop(selected_idx)
+                    block.append(item)
+                    faculty = item['subject'].get('faculty', 'TBD')
+                    if faculty != 'TBD':
+                        used_faculties.add(faculty)
+                        
             if block:
                 parallel_blocks.append(block)
                 
@@ -883,6 +891,9 @@ class GeneticAlgorithm:
         room_clashes = self._count_room_clashes(schedule)
         score -= room_clashes * 80
         
+        batch_clashes = self._count_batch_clashes(schedule)
+        score -= batch_clashes * 150
+        
         lunch_violations = self._check_lunch_violations(schedule, constraints)
         score -= lunch_violations * 50
         
@@ -898,6 +909,10 @@ class GeneticAlgorithm:
         # Penalise deviations from the target weekly_hours for each subject
         hour_violations = self._check_hour_violations(schedule, constraints)
         score -= hour_violations * 2000
+        
+        # Ensure Part 1 and Part 2 are back-to-back
+        contiguous_lab_violations = self._check_contiguous_lab_violations(schedule)
+        score -= contiguous_lab_violations * 2000
 
         workload_variance = self._calculate_workload_variance(schedule)
         score -= min(workload_variance * 2, 100)
@@ -912,10 +927,11 @@ class GeneticAlgorithm:
         score += completion_rate * 50
         
         individual['fitness'] = score
-        individual['clashes'] = faculty_clashes + room_clashes
+        individual['clashes'] = faculty_clashes + room_clashes + batch_clashes
         individual['metadata'] = {
             'faculty_clashes': faculty_clashes,
             'room_clashes': room_clashes,
+            'batch_clashes': batch_clashes,
             'lunch_violations': lunch_violations,
             'morning_violations': morning_violations,
             'hour_violations': hour_violations,
@@ -1007,6 +1023,41 @@ class GeneticAlgorithm:
         
         return clashes
     
+    def _count_batch_clashes(self, schedule):
+        """Count if the same batch is assigned to multiple classes at the same time in the same section"""
+        batch_schedule_tracking = defaultdict(list)
+        clashes = 0
+        
+        for school in schedule:
+            for section in schedule[school]:
+                for day in schedule[school][section]:
+                    for slot, slot_content in schedule[school][section][day].items():
+                        for class_info in self._extract_classes(slot_content):
+                            if (class_info and class_info.get('type') not in ['LUNCH', 'BREAK', None]):
+                                # real_batch could be '1', '01', '02', etc.
+                                b_val = str(class_info.get('batch', '1')).strip().replace('.0', '')
+                                
+                                # For Theory (which applies to ALL batches within this section), it is just marked as '1'
+                                # If it's Theory (represented as '1'), it conflicts with EVERYTHING in this section
+                                # If it's a specific batch (e.g. '01'), it conflicts with '01' AND '1'.
+                                key = f"{school}_{section}_{day}_{slot}"
+                                batch_schedule_tracking[key].append(b_val)
+                                
+        for slot_key, batches in batch_schedule_tracking.items():
+            if len(batches) > 1:
+                # If there's a theory class ('1') and ANY other class, it's a clash
+                if '1' in batches:
+                    clashes += len(batches) - 1
+                else:
+                    # Otherwise, check for duplicates among specific batches (e.g. two '01's)
+                    seen = set()
+                    for b in batches:
+                        if b in seen:
+                            clashes += 1
+                        seen.add(b)
+                        
+        return clashes
+    
     def _check_lunch_violations(self, schedule, constraints):
         """Check for classes scheduled during lunch"""
         violations = 0
@@ -1064,6 +1115,59 @@ class GeneticAlgorithm:
         
         return violations
     
+    def _check_contiguous_lab_violations(self, schedule):
+        """Ensure that Part 1 and Part 2 of labs/tutorials are exactly back-to-back"""
+        violations = 0
+        for school in schedule:
+            for section in schedule[school]:
+                for day in schedule[school][section]:
+                    # Extract slot keys chronologically
+                    # (Assume keys are generated in chronological order by dict insertion order)
+                    slot_keys = list(schedule[school][section][day].keys())
+                    
+                    for i, slot_key in enumerate(slot_keys):
+                        content = schedule[school][section][day].get(slot_key)
+                        classes_list = self._extract_classes(content)
+                        for ci in classes_list:
+                            if ci and 'type' in ci and 'Part' in str(ci['type']):
+                                type_str = str(ci['type'])
+                                subj = ci.get('subject', '')
+                                batch = str(ci.get('batch', '')).strip()
+                                faculty = ci.get('faculty', '')
+                                
+                                if 'Part 1' in type_str:
+                                    has_part2 = False
+                                    if i + 1 < len(slot_keys):
+                                        next_key = slot_keys[i + 1]
+                                        next_content = schedule[school][section][day].get(next_key)
+                                        next_classes = self._extract_classes(next_content)
+                                        for n_ci in next_classes:
+                                            if (n_ci and n_ci.get('subject') == subj and 
+                                                str(n_ci.get('batch', '')).strip() == batch and
+                                                'Part 2' in str(n_ci.get('type', '')) and
+                                                n_ci.get('faculty') == faculty):
+                                                has_part2 = True
+                                                break
+                                    if not has_part2:
+                                        violations += 1
+                                        
+                                elif 'Part 2' in type_str:
+                                    has_part1 = False
+                                    if i - 1 >= 0:
+                                        prev_key = slot_keys[i - 1]
+                                        prev_content = schedule[school][section][day].get(prev_key)
+                                        prev_classes = self._extract_classes(prev_content)
+                                        for p_ci in prev_classes:
+                                            if (p_ci and p_ci.get('subject') == subj and 
+                                                str(p_ci.get('batch', '')).strip() == batch and
+                                                'Part 1' in str(p_ci.get('type', '')) and
+                                                p_ci.get('faculty') == faculty):
+                                                has_part1 = True
+                                                break
+                                    if not has_part1:
+                                        violations += 1
+        return violations
+
     def _check_lunch_union_violations(self, schedule, constraints):
         """
         CHANGE 4: Check faculty lunch union violations
@@ -1109,7 +1213,7 @@ class GeneticAlgorithm:
             sec = str(s.get('section', '')).strip().upper()
             wh = int(s.get('weekly_hours', 0) or 0)
             is_lab = any(t in str(s.get('type', '')).upper() for t in ['LAB', 'TUTORIAL', 'PRACTICAL'])
-            key = (sn, batch if is_lab else '_ALL')
+            key = (sn, sec, batch if is_lab else '_ALL')
             if key not in target_hours:
                 target_hours[key] = wh
 
@@ -1126,7 +1230,13 @@ class GeneticAlgorithm:
                             ct = str(ci.get('type', '')).upper()
                             is_lab = any(t in ct for t in ['LAB', 'TUTORIAL', 'PRACTICAL'])
                             b = str(ci.get('batch', '1')).strip().replace('.0', '').upper()
-                            key = (sn, b if is_lab else '_ALL')
+                            
+                            # Extract section from batch_key (e.g. Sem_2_Section_A)
+                            sec = ''
+                            if 'Section_' in batch_key:
+                                sec = batch_key.split('Section_')[-1].strip().upper()
+                            
+                            key = (sn, sec, b if is_lab else '_ALL')
                             scheduled_hours[key] += 1
 
         # Compare and accumulate violations
@@ -1217,7 +1327,12 @@ class GeneticAlgorithm:
         scheduled_sessions = defaultdict(int)
         
         for subject in subjects:
-            key = f"{subject.get('school', '')}_{subject.get('year', subject.get('semester', ''))}_{subject['name']}"
+            sn = str(subject.get('name', '')).strip().upper()
+            sec = str(subject.get('section', '')).strip().upper()
+            b = str(subject.get('batch', '1')).strip().replace('.0', '').upper()
+            is_lab = any(t in str(subject.get('type', '')).upper() for t in ['LAB', 'TUTORIAL', 'PRACTICAL'])
+            
+            key = f"{subject.get('school', '')}_{subject.get('year', subject.get('semester', ''))}_{sec}_{sn}_{b if is_lab else '_ALL'}"
             required_sessions[key] = subject.get('weekly_hours', 3)
         
         for school in schedule:
@@ -1236,7 +1351,16 @@ class GeneticAlgorithm:
                     for slot, slot_content in schedule[school][batch][day].items():
                         for class_info in self._extract_classes(slot_content):
                             if (class_info and class_info.get('type') not in ['LUNCH', 'BREAK', None]):
-                                key = f"{school_type}_{year}_{class_info.get('subject', '')}"
+                                sn = str(class_info.get('subject', '')).strip().upper()
+                                ct = str(class_info.get('type', '')).upper()
+                                is_lab = any(t in ct for t in ['LAB', 'TUTORIAL', 'PRACTICAL'])
+                                b = str(class_info.get('batch', '1')).strip().replace('.0', '').upper()
+                                
+                                sec = ''
+                                if 'Section_' in batch:
+                                    sec = batch.split('Section_')[-1].strip().upper()
+                                    
+                                key = f"{school_type}_{year}_{sec}_{sn}_{b if is_lab else '_ALL'}"
                                 scheduled_sessions[key] += 1
         
         if required_sessions:
