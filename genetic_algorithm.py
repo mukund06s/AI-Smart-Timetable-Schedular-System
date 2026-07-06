@@ -443,6 +443,10 @@ class GeneticAlgorithm:
                 parallel_blocks.append(block)
                 
         # Schedule each parallel block into the same exact slot
+        # UNIVERSAL-FIX: Track used days per (subject_name, batch) to prevent
+        # the same tutorial/lab session from being placed twice on the same day.
+        block_days_used = defaultdict(set)  # key=(subject_name, batch) -> set of days used
+
         for block in parallel_blocks:
             block_duration = max([item['hours'] for item in block])
             
@@ -450,6 +454,17 @@ class GeneticAlgorithm:
             while attempts < 2000:
                 attempts += 1
                 day = random.choice(self.days)
+
+                # UNIVERSAL-FIX: For 1-hour sessions (tutorials), enforce different days per subject+batch
+                if block_duration == 1:
+                    skip = False
+                    for item in block:
+                        subj_key = (item['subject'].get('name', ''), str(item['subject'].get('batch', '')))
+                        if day in block_days_used[subj_key]:
+                            skip = True
+                            break
+                    if skip:
+                        continue
                 idx = random.randint(0, len(available_slots) - max(1, block_duration))
                 slot1 = available_slots[idx]
                 slot2 = available_slots[idx+1] if block_duration == 2 else None
@@ -598,6 +613,10 @@ class GeneticAlgorithm:
                 batch_schedule[day][slot1_key] = classes_1 if len(classes_1) > 1 else classes_1[0]
                 if block_duration == 2 and classes_2:
                     batch_schedule[day][slot2_key] = classes_2 if len(classes_2) > 1 else classes_2[0]
+                # UNIVERSAL-FIX: Record day used for each subject+batch to enforce day-spread
+                for item in block:
+                    subj_key = (item['subject'].get('name', ''), str(item['subject'].get('batch', '')))
+                    block_days_used[subj_key].add(day)
                 break
 
         # --- 2. Schedule Theory ---
@@ -605,14 +624,29 @@ class GeneticAlgorithm:
             sessions_needed = int(subject.get('weekly_hours', 3))
             sessions_scheduled = 0
             attempts = 0
-            max_attempts = 2000
+            max_attempts = 3000
+            # UNIVERSAL-FIX: Track days already used for this theory subject.
+            # Each theory session must land on a DIFFERENT day to prevent
+            # duplicate sessions on the same day (e.g. LA Theory at 9-10 AND 10-11 same day).
+            days_used_for_subject = set()
             
             while sessions_scheduled < sessions_needed and attempts < max_attempts:
                 day = random.choice(self.days)
                 slot = random.choice(available_slots)
                 slot_key = self.slot_generator.get_slot_key(slot)
                 
-                if batch_schedule[day].get(slot_key) is None:
+                # UNIVERSAL-FIX: Skip if this subject is already placed on this day
+                if day in days_used_for_subject:
+                    attempts += 1
+                    continue
+                
+                # UNIVERSAL-FIX: Theory is whole-section. A slot is valid for theory ONLY if
+                # it is completely empty (None). If ANY class (lab/tutorial) is there already,
+                # theory cannot go there because students in that batch would be double-booked.
+                slot_val = batch_schedule[day].get(slot_key)
+                slot_is_empty = slot_val is None
+                
+                if slot_is_empty:
                     faculty = subject.get('faculty', 'TBD')
                     key = f"{day}_{slot_key}"
                     
@@ -664,7 +698,9 @@ class GeneticAlgorithm:
                                 room_tracker[room_name].add(key)
                             if is_morning:
                                 morning_counts[faculty] += 1
-                                
+                            
+                            # Mark this day as used for this subject (1 session per day)
+                            days_used_for_subject.add(day)
                             sessions_scheduled += 1
                 attempts += 1
                 
@@ -683,9 +719,14 @@ class GeneticAlgorithm:
         
         new_subj_name = str(new_subject.get('name', '')).strip().upper()
         
+        # UNIVERSAL-FIX: If the slot already holds a whole-section class (theory/tutorial with no batch),
+        # a batch-specific lab can NEVER go there — every student in that batch is already occupied.
         if isinstance(current_slot_val, dict):
             curr_type = str(current_slot_val.get('type', '')).upper()
-            curr_batch = str(current_slot_val.get('batch', '1'))
+            curr_batch = str(current_slot_val.get('batch', '')).strip().replace('.0', '')
+            # If existing class is whole-section (empty batch or theory), reject
+            if curr_batch in ('', '0', 'theory', 'Theory') and 'LUNCH' not in curr_type and 'BREAK' not in curr_type:
+                return False
             curr_subj = str(current_slot_val.get('subject', '')).strip().upper()
             # CHANGE PARALLEL-LAB-FIX-11: Enforce DIFFERENT subjects for parallel batches
             if ('LAB' in curr_type or 'TUTORIAL' in curr_type or 'PRACTICAL' in curr_type) and curr_batch != new_batch and curr_subj != new_subj_name:
@@ -695,6 +736,10 @@ class GeneticAlgorithm:
         if isinstance(current_slot_val, list):
             for c in current_slot_val:
                 curr_type = str(c.get('type', '')).upper()
+                curr_batch_c = str(c.get('batch', '')).strip().replace('.0', '')
+                # If any entry is whole-section, reject
+                if curr_batch_c in ('', '0', 'theory', 'Theory') and 'LUNCH' not in curr_type and 'BREAK' not in curr_type:
+                    return False
                 curr_subj = str(c.get('subject', '')).strip().upper()
                 if not ('LAB' in curr_type or 'TUTORIAL' in curr_type or 'PRACTICAL' in curr_type):
                     return False
@@ -875,6 +920,46 @@ class GeneticAlgorithm:
         
         return True
     
+    def _count_same_day_duplicates(self, schedule):
+        """
+        Count same-day duplicate sessions universally.
+
+        Rules:
+        - A theory subject (batch='') should appear at most ONCE per day per section.
+        - A tutorial/lab for the same batch should appear at most ONCE per day per section.
+          (2-hour labs are (Part1 + Part2) on the same day — these are NOT duplicates.)
+        Returns the count of excess sessions (each extra session beyond 1 per day = 1 violation).
+        """
+        violations = 0
+
+        for school in schedule:
+            for section in schedule[school]:
+                for day in schedule[school][section]:
+                    # Track: {(subject_name, batch)} -> count of sessions this day
+                    seen_today = defaultdict(int)
+
+                    for slot, slot_content in schedule[school][section][day].items():
+                        for class_info in self._extract_classes(slot_content):
+                            if not class_info or class_info.get('type') in ['LUNCH', 'BREAK', None]:
+                                continue
+
+                            subj_name = str(class_info.get('subject', '')).strip()
+                            batch = str(class_info.get('batch', '')).strip().replace('.0', '')
+                            stype = str(class_info.get('type', '')).upper()
+
+                            # Skip Part 2 of a lab/tutorial (Part 1 + Part 2 = intentional same-day pair)
+                            if 'PART 2' in stype:
+                                continue
+
+                            key = (subj_name, batch)
+                            seen_today[key] += 1
+
+                    for key, count in seen_today.items():
+                        if count > 1:
+                            violations += count - 1
+
+        return violations
+
     def fitness(self, individual, constraints):
         """
         Enhanced fitness function with all constraints
@@ -926,8 +1011,13 @@ class GeneticAlgorithm:
         completion_rate = self._calculate_completion_rate(schedule, constraints.get('subjects', []))
         score += completion_rate * 50
         
+        # UNIVERSAL-FIX: Penalise same-day duplicates for theory/tutorial classes.
+        # A subject should appear AT MOST ONCE per day per section.
+        same_day_duplicates = self._count_same_day_duplicates(schedule)
+        score -= same_day_duplicates * 500
+
         individual['fitness'] = score
-        individual['clashes'] = faculty_clashes + room_clashes + batch_clashes
+        individual['clashes'] = faculty_clashes + room_clashes + batch_clashes + same_day_duplicates
         individual['metadata'] = {
             'faculty_clashes': faculty_clashes,
             'room_clashes': room_clashes,
@@ -1024,38 +1114,56 @@ class GeneticAlgorithm:
         return clashes
     
     def _count_batch_clashes(self, schedule):
-        """Count if the same batch is assigned to multiple classes at the same time in the same section"""
-        batch_schedule_tracking = defaultdict(list)
+        """
+        Count batch-level scheduling conflicts universally.
+
+        Rules:
+        1. A THEORY class has no batch (batch='', '0', or 'theory') → it is section-wide.
+           If a theory class and ANY batch-specific class share the same slot in the same
+           section, every student in that batch has a clash.
+        2. Two batch-specific classes (e.g. B01 Lab + B01 Tutorial) in the same slot
+           within the same section means Batch 01 is double-booked → clash.
+        3. A batch-specific class does NOT clash with a class for a DIFFERENT batch
+           in the same slot (that is intentional parallel scheduling).
+        """
         clashes = 0
-        
+
+        # Build: {school_section_day_slot -> [batch_values]}
+        slot_batches = defaultdict(list)
+
         for school in schedule:
             for section in schedule[school]:
                 for day in schedule[school][section]:
                     for slot, slot_content in schedule[school][section][day].items():
                         for class_info in self._extract_classes(slot_content):
-                            if (class_info and class_info.get('type') not in ['LUNCH', 'BREAK', None]):
-                                # real_batch could be '1', '01', '02', etc.
-                                b_val = str(class_info.get('batch', '1')).strip().replace('.0', '')
-                                
-                                # For Theory (which applies to ALL batches within this section), it is just marked as '1'
-                                # If it's Theory (represented as '1'), it conflicts with EVERYTHING in this section
-                                # If it's a specific batch (e.g. '01'), it conflicts with '01' AND '1'.
-                                key = f"{school}_{section}_{day}_{slot}"
-                                batch_schedule_tracking[key].append(b_val)
-                                
-        for slot_key, batches in batch_schedule_tracking.items():
-            if len(batches) > 1:
-                # If there's a theory class ('1') and ANY other class, it's a clash
-                if '1' in batches:
-                    clashes += len(batches) - 1
-                else:
-                    # Otherwise, check for duplicates among specific batches (e.g. two '01's)
-                    seen = set()
-                    for b in batches:
-                        if b in seen:
-                            clashes += 1
-                        seen.add(b)
-                        
+                            if (class_info and
+                                    class_info.get('type') not in ['LUNCH', 'BREAK', None]):
+                                raw_batch = str(class_info.get('batch', '')).strip().replace('.0', '')
+                                # Normalize: blank / '0' / 'theory' → whole-section marker ''
+                                is_whole_section = raw_batch in ('', '0', 'theory', 'Theory')
+                                b_val = '' if is_whole_section else raw_batch
+                                key = f"{school}||{section}||{day}||{slot}"
+                                slot_batches[key].append(b_val)
+
+        for key, batches in slot_batches.items():
+            if len(batches) <= 1:
+                continue
+
+            has_whole_section = any(b == '' for b in batches)
+            batch_specific = [b for b in batches if b != '']
+
+            if has_whole_section:
+                # Every batch-specific entry clashes with the whole-section class
+                clashes += len(batch_specific)
+            else:
+                # Check for duplicate batch ids (same batch in two different classes)
+                seen = {}
+                for b in batch_specific:
+                    if b in seen:
+                        clashes += 1
+                    else:
+                        seen[b] = True
+
         return clashes
     
     def _check_lunch_violations(self, schedule, constraints):
@@ -1448,9 +1556,41 @@ class GeneticAlgorithm:
                         slot2 = random.choice(slot_keys)
                         
                         if day1 in schedule[school][batch] and day2 in schedule[school][batch]:
-                            temp = schedule[school][batch][day1].get(slot1)
-                            schedule[school][batch][day1][slot1] = schedule[school][batch][day2].get(slot2)
-                            schedule[school][batch][day2][slot2] = temp
+                            val1 = schedule[school][batch][day1].get(slot1)
+                            val2 = schedule[school][batch][day2].get(slot2)
+                            
+                            # UNIVERSAL-FIX: Validate swap won't create theory-vs-lab clash.
+                            # A theory (whole-section, batch='') cannot go into a slot with a lab/tutorial,
+                            # and a lab cannot go into a slot with a theory class.
+                            def _is_theory(v):
+                                """Return True if v is a whole-section (theory) class."""
+                                if v is None: return False
+                                items = v if isinstance(v, list) else [v]
+                                return any(
+                                    str(c.get('batch', '')).strip().replace('.0', '') in ('', '0')
+                                    and c.get('type') not in ['LUNCH', 'BREAK']
+                                    for c in items if c
+                                )
+                            
+                            def _is_batch_specific(v):
+                                """Return True if v contains any batch-specific class."""
+                                if v is None: return False
+                                items = v if isinstance(v, list) else [v]
+                                return any(
+                                    str(c.get('batch', '')).strip().replace('.0', '') not in ('', '0')
+                                    and c.get('type') not in ['LUNCH', 'BREAK']
+                                    for c in items if c
+                                )
+                            
+                            # Reject swap if it would put theory into a batch-specific slot or vice versa
+                            swap_invalid = (
+                                (_is_theory(val1) and _is_batch_specific(val2)) or
+                                (_is_batch_specific(val1) and _is_theory(val2))
+                            )
+                            
+                            if not swap_invalid:
+                                schedule[school][batch][day1][slot1] = val2
+                                schedule[school][batch][day2][slot2] = val1
         
         elif mutation_type == 'change_room':
             # ROOM-FIX: Only change rooms for classes that do NOT have a

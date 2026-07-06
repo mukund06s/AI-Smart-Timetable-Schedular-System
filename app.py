@@ -3505,6 +3505,14 @@ class SmartTimetableScheduler:
         
         assignments_made = 0
         for subject in subjects:
+            # FACULTY-LOCK-FIX: Only use Hungarian assignment if dataset did NOT already
+            # assign a specific faculty. This prevents cross-section leakage where, e.g.,
+            # PM (assigned to Web Dev in Section B) overrides SG (Section A's faculty).
+            existing_faculty = subject.get('faculty', 'TBD')
+            if existing_faculty and existing_faculty.upper() != 'TBD':
+                # Faculty already locked from dataset — do not override
+                assignments_made += 1
+                continue
             if subject['name'] in faculty_assignments:
                 subject['faculty'] = faculty_assignments[subject['name']]
                 assignments_made += 1
