@@ -6,6 +6,7 @@ import numpy as np
 from collections import defaultdict
 import copy
 from typing import Dict, List, Any, Optional, Tuple
+from constraint_engine import ConstraintEngine
 
 # School-specific lunch times (defaults - can be overridden by semester config)
 SCHOOL_LUNCH_TIMES = {
@@ -240,6 +241,8 @@ class GeneticAlgorithm:
     
     def create_individual(self, constraints):
         """Create a random individual (timetable) respecting all constraints"""
+        engine = ConstraintEngine(constraints.get('dynamic_constraints', []))
+        
         individual = {
             'schedule': {},
             'fitness': 0,
@@ -314,7 +317,8 @@ class GeneticAlgorithm:
                         school_key, school_type, year, batch, subjects,
                         faculties, rooms, all_slots, available_slots,
                         faculty_tracker, room_tracker, morning_counts,
-                        faculty_lunch_unions, program, _skip_electives
+                        faculty_lunch_unions, program, _skip_electives,
+                        engine
                     )
 
         return individual
@@ -322,7 +326,8 @@ class GeneticAlgorithm:
     def _create_batch_schedule(self, school_key, school_type, year, batch, subjects, 
                                faculties, rooms, all_slots, available_slots,
                                faculty_tracker, room_tracker, morning_counts,
-                               faculty_lunch_unions, program=None, skip_electives=None):
+                               faculty_lunch_unions, program=None, skip_electives=None,
+                               constraint_engine=None):
         """Create schedule for a single batch with all constraints"""
         skip_electives = skip_electives or set()
         batch_schedule = {}
@@ -504,6 +509,12 @@ class GeneticAlgorithm:
                             
                     if slot1['start'] == MORNING_SLOT_START and morning_counts[faculty] >= FACULTY_MORNING_LIMIT:
                         valid = False; break
+                        
+                    if constraint_engine:
+                        if not constraint_engine.is_slot_allowed(day, slot1, idx, len(available_slots), subj, faculty, program, year, batch):
+                            valid = False; break
+                        if item_hours == 2 and not constraint_engine.is_slot_allowed(day, slot2, idx+1, len(available_slots), subj, faculty, program, year, batch):
+                            valid = False; break
                 
                 if not valid:
                     continue
@@ -649,6 +660,12 @@ class GeneticAlgorithm:
                 if slot_is_empty:
                     faculty = subject.get('faculty', 'TBD')
                     key = f"{day}_{slot_key}"
+                    
+                    slot_index = available_slots.index(slot)
+                    if constraint_engine:
+                        if not constraint_engine.is_slot_allowed(day, slot, slot_index, len(available_slots), subject, faculty, program, year, ""):
+                            attempts += 1
+                            continue
                     
                     is_morning = slot['start'] == MORNING_SLOT_START
                     if is_morning and morning_counts.get(faculty, 0) >= FACULTY_MORNING_LIMIT:
@@ -968,6 +985,11 @@ class GeneticAlgorithm:
         score = 1000
         
         schedule = individual['schedule']
+        engine = ConstraintEngine(constraints.get('dynamic_constraints', []))
+        
+        # Calculate soft penalties from dynamic constraints
+        soft_penalty = engine.calculate_soft_penalties(schedule)
+        score -= soft_penalty
         
         # Count clashes (intra-schedule + cross-semester from Firebase)
         faculty_clashes = self._count_faculty_clashes(schedule, constraints)

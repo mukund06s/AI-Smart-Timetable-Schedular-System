@@ -19,6 +19,9 @@ st.set_page_config(
 
 import pandas as pd
 import numpy as np
+from datetime import datetime
+from agent.timetable_agent import TimetableAgent
+from constraint_engine import ConstraintEngine
 from datetime import datetime, timedelta, date, time
 import random
 from collections import defaultdict, deque
@@ -599,6 +602,8 @@ class FirebaseManager:
             'agent_sessions': 'agent_sessions',
             'repair_history': 'repair_history',
             'agent_config': 'agent_config',
+            # CHANGE: Dynamic Constraint Engine
+            'scheduling_constraints': 'scheduling_constraints',
         }
     
     # ========== TIMETABLE OPERATIONS ==========
@@ -645,6 +650,42 @@ class FirebaseManager:
             st.error(f"Error loading timetable: {str(e)}")
             return None
     
+    def get_room_dataset(self, year: str = None):
+        """Get room dataset from Firebase"""
+        try:
+            doc_ref = self.db.collection(self.collections['room_dataset']).document(f"{year}_rooms" if year else "latest")
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict().get('rooms', [])
+            return []
+        except Exception as e:
+            st.error(f"Error loading room dataset: {str(e)}")
+            return []
+
+    # ========== DYNAMIC CONSTRAINTS OPERATIONS ==========
+    def get_scheduling_constraints(self, program: str, semester: int) -> list:
+        """Fetch dynamic constraints from Firebase."""
+        try:
+            doc_id = f"{program}_Sem{semester}"
+            doc_ref = self.db.collection(self.collections['scheduling_constraints']).document(doc_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict().get('constraints', [])
+            return []
+        except Exception as e:
+            st.error(f"Error loading scheduling constraints: {str(e)}")
+            return []
+
+    def save_scheduling_constraints(self, program: str, semester: int, constraints: list) -> tuple:
+        """Save dynamic constraints to Firebase."""
+        try:
+            doc_id = f"{program}_Sem{semester}"
+            doc_ref = self.db.collection(self.collections['scheduling_constraints']).document(doc_id)
+            doc_ref.set({'constraints': constraints, 'updated_at': firestore.SERVER_TIMESTAMP})
+            return True, "Constraints successfully saved"
+        except Exception as e:
+            return False, f"Error saving constraints: {str(e)}"
+
     def delete_timetable(self, year: str, archive: bool = True):
         """Delete timetable from Firebase and all its associated data"""
         try:
@@ -3651,6 +3692,17 @@ class SmartTimetableScheduler:
         # needs to be scheduled per section.  GA uses this to skip extras.
         constraints['elective_groups'] = getattr(self, 'elective_groups', [])
         
+        # CHANGE: Dynamic Constraint Engine
+        dynamic_constraints = self.firebase.get_scheduling_constraints(program, semester) if self.firebase else []
+        constraints['dynamic_constraints'] = dynamic_constraints
+        
+        # Check feasibility
+        engine = ConstraintEngine(dynamic_constraints)
+        is_feasible, warning_msg = engine.check_feasibility(subjects, len(available_slots) * 5)
+        if not is_feasible:
+            st.warning(f"⚠️ **Constraint Feasibility Warning:** {warning_msg}")
+            time_module.sleep(2)
+        
         with details_container:
             col1.metric("Population Size", self.genetic_algorithm.population_size)
             col2.metric("Generations", "30")
@@ -6068,6 +6120,140 @@ def display_faculty_timetable(faculty_name, faculty_schedule, faculty_metadata, 
 
 
 # ==================== MAIN APPLICATION ====================
+# ==================== CHANGE: DYNAMIC CONSTRAINT ENGINE UI ====================
+
+def render_dynamic_constraints_sidebar(firebase_mgr, selected_program: str, selected_semester: int):
+    """Render UI for creating and managing dynamic constraints."""
+    if not firebase_mgr or not selected_program:
+        return
+        
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🎯 Dynamic Constraints")
+    
+    with st.sidebar.expander(f"Manage Rules - Sem {selected_semester}", expanded=False):
+        constraints = firebase_mgr.get_scheduling_constraints(selected_program, selected_semester)
+        
+        # Display existing constraints
+        if constraints:
+            st.markdown("**Active Rules:**")
+            for i, c in enumerate(constraints):
+                status = "✅" if c.get("enabled", True) else "❌"
+                priority = "🔴 Hard" if c.get("priority", "HARD") == "HARD" else "🟡 Soft"
+                
+                # Toggle and Delete logic
+                col1, col2, col3 = st.columns([6, 1, 1])
+                with col1:
+                    st.markdown(f"{status} **{c['name']}** ({priority})")
+                    st.caption(f"Type: {c.get('type')}")
+                with col2:
+                    if st.button("⏸️" if c.get("enabled", True) else "▶️", key=f"tog_c_{i}_{selected_program}_{selected_semester}", help="Enable/Disable rule"):
+                        c['enabled'] = not c.get("enabled", True)
+                        firebase_mgr.save_scheduling_constraints(selected_program, selected_semester, constraints)
+                        st.rerun()
+                with col3:
+                    if st.button("🗑️", key=f"del_c_{i}_{selected_program}_{selected_semester}", help="Delete rule"):
+                        constraints.pop(i)
+                        firebase_mgr.save_scheduling_constraints(selected_program, selected_semester, constraints)
+                        st.rerun()
+            st.markdown("---")
+        else:
+            st.info("No custom rules configured yet.")
+            
+        # Add new constraint
+        st.markdown("**Add New Rule**")
+        rule_type = st.selectbox("Rule Type", [
+            "SLOT_RESTRICTION", 
+            "FACULTY_AVAILABILITY", 
+            "SUBJECT_SLOT_PREFERENCE", 
+            "CONSECUTIVE_LIMIT"
+        ], key=f"rt_{selected_program}_{selected_semester}")
+        
+        c_name = st.text_input("Rule Name", placeholder="e.g. No Theory in Last Slot", key=f"rn_{selected_program}_{selected_semester}")
+        
+        # Priority mapping
+        default_priority = "HARD"
+        if rule_type in ["SUBJECT_SLOT_PREFERENCE", "CONSECUTIVE_LIMIT"]:
+            default_priority = "SOFT"
+            
+        c_priority = st.selectbox("Priority", ["HARD", "SOFT"], index=0 if default_priority == "HARD" else 1, key=f"rp_{selected_program}_{selected_semester}")
+        
+        new_c = None
+        
+        if rule_type == "SLOT_RESTRICTION":
+            class_type = st.selectbox("Apply to", ["ALL", "Theory", "Lab", "Tutorial"], key=f"sr_ct_{selected_program}_{selected_semester}")
+            positions = st.multiselect("Blocked Positions", ["FIRST", "LAST", "SECOND_LAST"], key=f"sr_bp_{selected_program}_{selected_semester}")
+            
+            if st.button("➕ Add Rule", key=f"add_rule_sr_{selected_program}_{selected_semester}"):
+                new_c = {
+                    "id": f"c_{len(constraints)+1}",
+                    "name": c_name or "Slot Restriction",
+                    "type": rule_type,
+                    "enabled": True,
+                    "priority": c_priority,
+                    "scope": {"class_type": class_type},
+                    "config": {"blocked_positions": positions}
+                }
+                
+        elif rule_type == "FACULTY_AVAILABILITY":
+            fac_name = st.text_input("Faculty Initials (e.g. SG)", key=f"fa_fn_{selected_program}_{selected_semester}")
+            mode = st.selectbox("Mode", ["AVAILABLE_ONLY", "BLOCKED"], key=f"fa_m_{selected_program}_{selected_semester}")
+            days = st.multiselect("Days", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], key=f"fa_d_{selected_program}_{selected_semester}")
+            t_start = st.text_input("Start Time (HH:MM)", value="09:00", key=f"fa_ts_{selected_program}_{selected_semester}")
+            t_end = st.text_input("End Time (HH:MM)", value="14:00", key=f"fa_te_{selected_program}_{selected_semester}")
+            
+            if st.button("➕ Add Rule", key=f"add_rule_fa_{selected_program}_{selected_semester}"):
+                new_c = {
+                    "id": f"c_{len(constraints)+1}",
+                    "name": c_name or f"{fac_name} Availability",
+                    "type": rule_type,
+                    "enabled": True,
+                    "priority": c_priority,
+                    "scope": {"faculty": fac_name},
+                    "config": {
+                        "mode": mode,
+                        "windows": [{"days": days, "start": t_start, "end": t_end}]
+                    }
+                }
+                
+        elif rule_type == "SUBJECT_SLOT_PREFERENCE":
+            class_type = st.selectbox("Class Type", ["Lab", "Theory", "Tutorial"], key=f"ssp_ct_{selected_program}_{selected_semester}")
+            # Hardcoded standard afternoon slots for simplicity in UI, admins can extend later
+            pref_slots = st.multiselect("Preferred Slots", ["14:00-15:00", "15:00-16:00", "14:00-16:00"], key=f"ssp_ps_{selected_program}_{selected_semester}")
+            penalty = st.number_input("Penalty Weight", min_value=1, value=20, key=f"ssp_pw_{selected_program}_{selected_semester}")
+            
+            if st.button("➕ Add Rule", key=f"add_rule_ssp_{selected_program}_{selected_semester}"):
+                new_c = {
+                    "id": f"c_{len(constraints)+1}",
+                    "name": c_name or "Slot Preference",
+                    "type": rule_type,
+                    "enabled": True,
+                    "priority": c_priority,
+                    "scope": {"class_type": class_type},
+                    "config": {"preferred_slots": pref_slots, "penalty_weight": penalty}
+                }
+                
+        elif rule_type == "CONSECUTIVE_LIMIT":
+            class_type = st.selectbox("Class Type", ["ALL", "Theory", "Lab"], key=f"cl_ct_{selected_program}_{selected_semester}")
+            max_c = st.number_input("Max Consecutive Blocks", min_value=1, max_value=5, value=3, key=f"cl_mc_{selected_program}_{selected_semester}")
+            penalty = st.number_input("Penalty Weight", min_value=1, value=30, key=f"cl_pw_{selected_program}_{selected_semester}")
+            
+            if st.button("➕ Add Rule", key=f"add_rule_cl_{selected_program}_{selected_semester}"):
+                new_c = {
+                    "id": f"c_{len(constraints)+1}",
+                    "name": c_name or "Consecutive Limit",
+                    "type": rule_type,
+                    "enabled": True,
+                    "priority": c_priority,
+                    "scope": {},
+                    "config": {"class_type": class_type, "max_consecutive": max_c, "penalty_weight": penalty}
+                }
+                
+        if new_c:
+            constraints.append(new_c)
+            firebase_mgr.save_scheduling_constraints(selected_program, selected_semester, constraints)
+            st.success("Rule added!")
+            st.rerun()
+
 
 def main():
     logger.info("Smart Timetable Scheduler starting")
@@ -6211,6 +6397,7 @@ def main():
                 
                 # CHANGE 1, 2: Render semester configuration
                 render_semester_config_sidebar(firebase_manager, selected_program, selected_semester)
+                render_dynamic_constraints_sidebar(firebase_manager, selected_program, selected_semester)
                 
                 # CHANGE SECTION-BATCH-1: Unified Sections & Batches sidebar expander
                 # Replaces previous CHANGE NEW-SECTION-1 and CHANGE NEW-SECTION-2 blocks.
