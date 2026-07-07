@@ -991,6 +991,10 @@ class GeneticAlgorithm:
         soft_penalty = engine.calculate_soft_penalties(schedule)
         score -= soft_penalty
         
+        # Calculate HARD constraint penalties (essential for seeded individuals)
+        hard_violations = self._check_hard_constraint_violations(schedule, constraints, engine)
+        score -= hard_violations * 5000
+        
         # Count clashes (intra-schedule + cross-semester from Firebase)
         faculty_clashes = self._count_faculty_clashes(schedule, constraints)
         score -= faculty_clashes * 100
@@ -1053,6 +1057,53 @@ class GeneticAlgorithm:
         
         return score
         
+    def _check_hard_constraint_violations(self, schedule, constraints, engine):
+        """
+        Check if any class in the schedule violates a hard dynamic constraint.
+        This is crucial because the seeded individual (from graph coloring) 
+        does not check hard constraints during creation.
+        """
+        if not engine.hard_constraints:
+            return 0
+            
+        violations = 0
+        program = constraints.get('program', 'B.Tech_Computer_Science')
+        year = int(constraints.get('semester', 1))
+        
+        available_slots = self.get_available_slots(constraints)
+        
+        for school in schedule:
+            for batch_key in schedule[school]:
+                sec = ''
+                if 'Section_' in batch_key:
+                    sec = batch_key.split('Section_')[-1].strip().upper()
+                
+                for day in schedule[school][batch_key]:
+                    for slot_key, slot_content in schedule[school][batch_key][day].items():
+                        if not slot_content:
+                            continue
+                            
+                        # Find the actual slot dict for the slot_key
+                        actual_slot = next((s for s in available_slots if self.slot_generator.get_slot_key(s) == slot_key), None)
+                        if not actual_slot:
+                            continue
+                        
+                        try:
+                            slot_index = available_slots.index(actual_slot)
+                        except ValueError:
+                            slot_index = 0
+                            
+                        classes = self._extract_classes(slot_content)
+                        for class_info in classes:
+                            if not class_info or class_info.get('type') in ['LUNCH', 'BREAK']:
+                                continue
+                                
+                            faculty = class_info.get('faculty', 'TBD')
+                            if not engine.is_slot_allowed(day, actual_slot, slot_index, len(available_slots), class_info, faculty, program, year, sec):
+                                violations += 1
+                                
+        return violations
+
     @staticmethod
     def _extract_classes(slot_content):
         """Helper to parse a slot that could be a single dict or a list of dicts"""
