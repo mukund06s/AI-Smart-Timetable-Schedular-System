@@ -1,0 +1,55 @@
+﻿--- SECTION A COUNTS ---
+Calculus (THEORY) - Batch None: 2
+Calculus Tutorial (TUTORIAL) - Batch 01: 1
+Calculus Tutorial (TUTORIAL) - Batch 02: 1
+Computational Thinking for Problem Solving (THEORY) - Batch None: 4
+Computational Thinking for Problem Solving Lab (LAB (PART 1)) - Batch 01: 1
+Computational Thinking for Problem Solving Lab (LAB (PART 1)) - Batch 02: 1
+Computational Thinking for Problem Solving Lab (LAB (PART 2)) - Batch 01: 1
+Computational Thinking for Problem Solving Lab (LAB (PART 2)) - Batch 02: 1
+Elements of Biology (THEORY) - Batch None: 1
+Elements of Biology Tutorial (TUTORIAL) - Batch 01: 1
+Elements of Biology Tutorial (TUTORIAL) - Batch 02: 1
+Engineering Ethics (THEORY) - Batch None: 1
+Engineering Graphics and Design (THEORY) - Batch None: 2
+Engineering Graphics and Design Lab (LAB (PART 1)) - Batch 01: 1
+Engineering Graphics and Design Lab (LAB (PART 1)) - Batch 02: 1
+Engineering Graphics and Design Lab (LAB (PART 2)) - Batch 01: 1
+Engineering Graphics and Design Lab (LAB (PART 2)) - Batch 02: 1
+Environmental Studies (THEORY) - Batch None: 1
+Essential Electronics Practices Lab (LAB (PART 1)) - Batch 01: 1
+Essential Electronics Practices Lab (LAB (PART 1)) - Batch 02: 1
+Essential Electronics Practices Lab (LAB (PART 2)) - Batch 01: 1
+Essential Electronics Practices Lab (LAB (PART 2)) - Batch 02: 1
+Indian Knowledge System (THEORY) - Batch None: 1
+Physics (THEORY) - Batch None: 2
+Physics Lab (LAB (PART 1)) - Batch 01: 1
+Physics Lab (LAB (PART 1)) - Batch 02: 1
+Physics Lab (LAB (PART 2)) - Batch 01: 1
+Physics Lab (LAB (PART 2)) - Batch 02: 1
+
+--- SECTION B COUNTS ---
+Calculus (THEORY) - Batch None: 3
+Calculus Tutorial (TUTORIAL) - Batch 01: 1
+Calculus Tutorial (TUTORIAL) - Batch 02: 1
+Computational Thinking for Problem Solving (THEORY) - Batch None: 3
+Computational Thinking for Problem Solving Lab (LAB (PART 1)) - Batch 02: 1
+Computational Thinking for Problem Solving Lab (LAB (PART 2)) - Batch 02: 1
+Elements of Biology (THEORY) - Batch None: 2
+Elements of Biology Tutorial (TUTORIAL) - Batch 01: 1
+Engineering Ethics (THEORY) - Batch None: 2
+Engineering Graphics and Design (THEORY) - Batch None: 1
+Engineering Graphics and Design Lab (LAB (PART 1)) - Batch 01: 1
+Engineering Graphics and Design Lab (LAB (PART 1)) - Batch 02: 1
+Engineering Graphics and Design Lab (LAB (PART 2)) - Batch 01: 1
+Engineering Graphics and Design Lab (LAB (PART 2)) - Batch 02: 1
+Essential Electronics Practices Lab (LAB (PART 1)) - Batch 01: 1
+Essential Electronics Practices Lab (LAB (PART 1)) - Batch 02: 1
+Essential Electronics Practices Lab (LAB (PART 2)) - Batch 01: 1
+Essential Electronics Practices Lab (LAB (PART 2)) - Batch 02: 1
+Indian Knowledge System (THEORY) - Batch None: 3
+Physics (THEORY) - Batch None: 3
+Physics Lab (LAB (PART 1)) - Batch 01: 1
+Physics Lab (LAB (PART 1)) - Batch 02: 1
+Physics Lab (LAB (PART 2)) - Batch 01: 1
+Physics Lab (LAB (PART 2)) - Batch 02: 1

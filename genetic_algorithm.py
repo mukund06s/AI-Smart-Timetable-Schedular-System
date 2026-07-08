@@ -1019,7 +1019,7 @@ class GeneticAlgorithm:
         # CHANGE UNIVERSAL-BATCH-FIX-6: Hour-validation penalty
         # Penalise deviations from the target weekly_hours for each subject
         hour_violations = self._check_hour_violations(schedule, constraints)
-        score -= hour_violations * 2000
+        score -= hour_violations * 50000
         
         # Ensure Part 1 and Part 2 are back-to-back
         contiguous_lab_violations = self._check_contiguous_lab_violations(schedule)
@@ -1722,8 +1722,15 @@ class GeneticAlgorithm:
                                     if day2 in schedule[school][batch]:
                                         target = schedule[school][batch][day2].get(slot2)
                                         if target is None:
-                                            schedule[school][batch][day2][slot2] = class_info
-                                            schedule[school][batch][day1][slot1] = None
+                                            if isinstance(class_info, list) and len(class_info) > 1:
+                                                # Move one class, leave the others
+                                                to_move = random.choice(class_info)
+                                                class_info.remove(to_move)
+                                                schedule[school][batch][day2][slot2] = to_move
+                                                # Original list remains in day1/slot1
+                                            else:
+                                                schedule[school][batch][day2][slot2] = class_info
+                                                schedule[school][batch][day1][slot1] = None
                                             break
                                 break
         

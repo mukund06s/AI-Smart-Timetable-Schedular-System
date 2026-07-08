@@ -4062,19 +4062,11 @@ class SmartTimetableScheduler:
                         if current_slot_val is None:
                             schedule[school][batch][day][slot_key] = new_class
                         else:
-                            # Safely handle parallel labs if they got mapped to the same slot
-                            new_type = str(new_class.get('type', '')).upper()
-                            if 'LAB' in new_type or 'TUTORIAL' in new_type or 'PRACTICAL' in new_type:
-                                if isinstance(current_slot_val, dict):
-                                    curr_type = str(current_slot_val.get('type', '')).upper()
-                                    if 'LAB' in curr_type or 'TUTORIAL' in curr_type or 'PRACTICAL' in curr_type:
-                                        schedule[school][batch][day][slot_key] = [current_slot_val, new_class]
-                                    else:
-                                        schedule[school][batch][day][slot_key] = new_class
-                                elif isinstance(current_slot_val, list):
-                                    current_slot_val.append(new_class)
-                            else:
-                                schedule[school][batch][day][slot_key] = new_class
+                            # Safely handle multiple classes mapped to the same slot (clashes)
+                            if isinstance(current_slot_val, dict):
+                                schedule[school][batch][day][slot_key] = [current_slot_val, new_class]
+                            elif isinstance(current_slot_val, list):
+                                current_slot_val.append(new_class)
         
         return schedule
     
@@ -7542,7 +7534,7 @@ def main():
                                             continue
                                         _classes_to_process = _ci_raw if isinstance(_ci_raw, list) else [_ci_raw]
                                         _lab_entries = []
-                                        _theory_entry = None
+                                        _theory_entries = []
                                         _fixed_entry = None
                                         for _ci in _classes_to_process:
                                             _ctype = str(_ci.get('type', '') or '').strip().upper()
@@ -7554,16 +7546,19 @@ def main():
                                                     _b_val = _b_val[:-2]
                                                 _lab_entries.append({'batch': _b_val, 'ci': _copy.deepcopy(_ci)})
                                             else:
-                                                if _theory_entry is None:
-                                                    _tc = _copy.deepcopy(_ci)
-                                                    _tc.pop('batch', None)
-                                                    _theory_entry = _tc
+                                                _tc = _copy.deepcopy(_ci)
+                                                _tc.pop('batch', None)
+                                                _theory_entries.append(_tc)
                                         if _fixed_entry:
                                             _out[_day][_slot_key] = _fixed_entry
-                                        elif _lab_entries:
+                                        elif _lab_entries and not _theory_entries:
                                             _out[_day][_slot_key] = _lab_entries
-                                        elif _theory_entry:
-                                            _out[_day][_slot_key] = _theory_entry
+                                        elif _theory_entries and not _lab_entries:
+                                            _out[_day][_slot_key] = _theory_entries if len(_theory_entries) > 1 else _theory_entries[0]
+                                        else:
+                                            # Mixed clash of labs and theories
+                                            _mixed = _lab_entries + [{'ci': t} for t in _theory_entries]
+                                            _out[_day][_slot_key] = _mixed if _mixed else None
                                 return _out
 
                             for _sec_i, _sec in enumerate(_gen_sections):
