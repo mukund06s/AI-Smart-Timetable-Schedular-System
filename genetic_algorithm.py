@@ -1388,7 +1388,17 @@ class GeneticAlgorithm:
 
         # Build target map: (subject_name_upper, batch_upper) -> weekly_hours
         target_hours = {}
+        program = constraints.get('program', '').upper()
+        semester = str(constraints.get('semester', '1'))
+        
         for s in subjects:
+            s_prog = str(s.get('program', '')).strip().upper()
+            s_sem = str(s.get('semester', '')).strip()
+            if program and s_prog and s_prog != program:
+                continue
+            if semester and s_sem and s_sem != semester:
+                continue
+                
             sn = str(s.get('name', '')).strip().upper()
             batch = str(s.get('batch', '1')).strip().replace('.0', '').upper()
             sec = str(s.get('section', '')).strip().upper()
@@ -1412,10 +1422,14 @@ class GeneticAlgorithm:
                             is_lab = any(t in ct for t in ['LAB', 'TUTORIAL', 'PRACTICAL'])
                             b = str(ci.get('batch', '1')).strip().replace('.0', '').upper()
                             
-                            # Extract section from batch_key (e.g. Sem_2_Section_A)
+                            # Extract section from batch_key (e.g. Sem_2_Section_1 -> 1 -> A)
                             sec = ''
                             if 'Section_' in batch_key:
-                                sec = batch_key.split('Section_')[-1].strip().upper()
+                                sec_raw = batch_key.split('Section_')[-1].strip().upper()
+                                if sec_raw.isdigit():
+                                    sec = chr(64 + int(sec_raw))
+                                else:
+                                    sec = sec_raw
                             
                             key = (sn, sec, b if is_lab else '_ALL')
                             scheduled_hours[key] += 1

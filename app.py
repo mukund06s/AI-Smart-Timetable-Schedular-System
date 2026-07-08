@@ -3036,6 +3036,63 @@ class DatasetUploadManager:
         # ── END MULTI-SECTION SUPPORT ─────────────────────────────────────────
 
         return subjects
+
+    def extract_schools_from_info(self, info_records: list) -> dict:
+        """Extract school and section configurations from info dataset"""
+        import streamlit as st
+        schools_data = {}
+        
+        current_prog_key = st.session_state.get('selected_program', '').strip().upper()
+        if not current_prog_key:
+            return schools_data
+            
+        program_config = PROGRAM_CONFIG.get(current_prog_key, {})
+        school_name = program_config.get('school', 'General')
+        program_key = f"{school_name}_{current_prog_key}"
+        
+        semesters_sections = {}
+        
+        for record in info_records:
+            sem_val = str(record.get('Sem', '')).strip()
+            if not sem_val:
+                continue
+            try:
+                sem = int(float(sem_val))
+            except ValueError:
+                continue
+                
+            sec_val = str(record.get('Section', '')).strip().upper()
+            if not sec_val:
+                sec_val = 'A'
+            
+            if sem not in semesters_sections:
+                semesters_sections[sem] = set()
+            semesters_sections[sem].add(sec_val)
+            
+        schools_data[program_key] = {
+            'name': program_config.get('name', current_prog_key),
+            'school': school_name,
+            'program': current_prog_key,
+            'years': program_config.get('years', 4),
+            'semesters': program_config.get('years', 4) * 2,
+            'batches': {},
+            'section_batches': {},
+        }
+        
+        for sem, secs in semesters_sections.items():
+            sorted_secs = sorted(list(secs))
+            sec_numbers = []
+            sec_batches = {}
+            for i, sec in enumerate(sorted_secs):
+                sec_num = i + 1
+                sec_numbers.append(sec_num)
+                # By default 2 batches per section for labs
+                sec_batches[sec] = [1, 2]
+                
+            schools_data[program_key]['batches'][sem] = sec_numbers
+            schools_data[program_key]['section_batches'][sem] = sec_batches
+            
+        return schools_data
     
     def extract_faculty_from_info(self, info_records: list) -> list:
         """Extract unique faculty list from Info Dataset with strict filtering"""
@@ -3680,7 +3737,15 @@ class SmartTimetableScheduler:
         )
         
         # Create constraints with all new features
-        constraints = create_constraints(schools_data, subjects, faculties, rooms)
+        prog_key_for_filter = program.split('_')[1] if len(program.split('_')) > 1 else program
+        filtered_subjects = [
+            s for s in subjects 
+            if (str(s.get('program', '')).upper() == prog_key_for_filter.upper() or 
+                s.get('program', '') == program) and
+               (str(s.get('year')) == str(semester) or str(s.get('semester')) == str(semester))
+        ]
+        
+        constraints = create_constraints(schools_data, filtered_subjects, faculties, rooms)
         constraints['initial_schedule'] = initial_schedule
         constraints['existing_faculty_schedules'] = existing_faculty_schedules
         constraints['existing_room_schedules'] = existing_room_schedules
@@ -4086,7 +4151,15 @@ class SmartTimetableScheduler:
             ga_progress = st.progress(0)
             ga_status = st.empty()
         
-        constraints = create_constraints(schools_data, subjects, faculties, rooms)
+        prog_key_for_filter = program.split('_')[1] if len(program.split('_')) > 1 else program
+        filtered_subjects = [
+            s for s in subjects 
+            if (str(s.get('program', '')).upper() == prog_key_for_filter.upper() or 
+                s.get('program', '') == program) and
+               (str(s.get('year')) == str(semester) or str(s.get('semester')) == str(semester))
+        ]
+        
+        constraints = create_constraints(schools_data, filtered_subjects, faculties, rooms)
         constraints['existing_faculty_schedules'] = existing_faculty_schedules
         constraints['existing_room_schedules'] = existing_room_schedules
         constraints['semester_config'] = semester_config
@@ -6550,7 +6623,7 @@ def main():
 
                     # ---- Per-section rows ----
                     for _sec in list(_sections_list):
-                        _batches_for_sec = _sb.get(_sec, [1])
+                        _batches_for_sec = [int(b) for b in _sb.get(_sec, [1])]
                         _sec_col1, _sec_col2 = st.columns([3, 1])
                         with _sec_col1:
                             st.markdown(f"**Section {_sec}** — Batches: {', '.join(map(str, _batches_for_sec))}")
@@ -7409,6 +7482,10 @@ def main():
                             allocations, _ = room_allocator.allocate_rooms(current_program, current_semester)
                             if allocations:
                                 st.session_state.room_allocations = allocations
+
+                            # Cleanup legacy incorrectly formatted keys from previous bug
+                            if current_program in st.session_state.schools_data:
+                                del st.session_state.schools_data[current_program]
 
                             schedule, semester_config = scheduler.generate_hybrid_timetable(
                                 st.session_state.schools_data,
