@@ -6304,6 +6304,21 @@ def render_dynamic_constraints_sidebar(firebase_mgr, selected_program: str, sele
             firebase_mgr.save_scheduling_constraints(selected_program, selected_semester, constraints)
             st.rerun()
 
+    # ── QUICK REGENERATE from Sidebar ─────────────────────────────────────────
+    if st.session_state.get('current_schedule') is not None:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 🔄 Quick Regenerate")
+        st.sidebar.caption("Regenerate with current data + updated constraints — no re-upload needed.")
+        if st.sidebar.button(
+            "🔄 Regenerate Timetable",
+            key="sidebar_regenerate_btn",
+            type="primary",
+            use_container_width=True,
+            help="Regenerate the timetable using already-loaded datasets and your current active constraints."
+        ):
+            st.session_state.trigger_regenerate = True
+            st.rerun()
+
 
 def main():
     logger.info("Smart Timetable Scheduler starting")
@@ -6352,6 +6367,10 @@ def main():
         st.session_state.section_batch_schedules = {}
     if 'best_schedule' not in st.session_state:
         st.session_state.best_schedule = None
+    if 'trigger_regenerate' not in st.session_state:
+        st.session_state.trigger_regenerate = False
+    if 'last_algorithm_choice' not in st.session_state:
+        st.session_state.last_algorithm_choice = 'hybrid'
     
     # Portal Selection Page
     if st.session_state.portal is None:
@@ -7297,10 +7316,29 @@ def main():
                     st.slider("GA Generations", 20, 100, 50, key="ga_gens")
                     st.slider("GA Population Size", 50, 200, 100, key="ga_pop")
                 
-                if st.button("🚀 GENERATE TIMETABLE", type="primary", disabled=not ready):
-                    # SAFETY CHECK: Sync validation
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    generate_clicked = st.button("🚀 GENERATE TIMETABLE", type="primary", disabled=not ready, use_container_width=True)
+                with btn_col2:
+                    regen_clicked = st.button(
+                        "🔄 Regenerate",
+                        disabled=not ready or st.session_state.get('current_schedule') is None,
+                        use_container_width=True,
+                        help="Re-run generation with the same datasets. No re-upload needed. Update constraints in the sidebar first if needed."
+                    )
+                
+                # Check if regenerate was triggered from sidebar
+                if st.session_state.get('trigger_regenerate'):
+                    st.session_state.trigger_regenerate = False
+                    generate_clicked = True
+                    st.info("🔄 Auto-regenerating with updated constraints...")
+
+                if generate_clicked or regen_clicked:
+                    # Save the algorithm choice used for this run
+                    st.session_state.last_algorithm_choice = algorithm_choice
+                    # SAFETY CHECK: Sync validation (skip for Regenerate mode)
                     valid_data = True
-                    if st.session_state.subjects:
+                    if st.session_state.subjects and not regen_clicked:
                         sample_subj = st.session_state.subjects[0]
                         session_prog = sample_subj.get('program', '')
                         session_sem = sample_subj.get('semester', 0)
@@ -7311,6 +7349,8 @@ def main():
                             st.write(f"Loaded data is for **{session_prog} Sem {session_sem}**, but you have selected **{selected_program} Sem {selected_semester}**.")
                             st.warning("Please upload the correct dataset for this selection or click 'Import to Session' again if you just changed the dropdown.")
                             valid_data = False
+                    elif regen_clicked:
+                        st.info("🔄 Regenerating with existing session data — datasets preserved.")
                     
                     if valid_data:
                         with st.spinner("Running AI/ML optimization..."):
