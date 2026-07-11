@@ -1,0 +1,21 @@
+S.No.,Program,Sem,Section,Batch,Name of the Module,Theory Hours per week,Practicals Hours per week,Tutorials Hours per week,TheoryLoad,Practical Load,Total,Faculty
+1,B.Tech,3,A,2,Signals and Systems,2,2,0,2,4,6,AP
+2,B.Tech,3,A,2,Computer Organization and Architecture,3,0,0,3,0,3,DG
+3,B.Tech,3,A,2,Data Structures and Algorithms,3,0,0,3,0,3,HG
+4,B.Tech,3,A,2,Data Structures and Algorithms Lab,0,2,0,0,4,4,HG
+5,B.Tech,3,A,2,Principles of Economics and Management,3,0,0,3,0,3,MG
+6,B.Tech,3,A,2,Probability and Statistics,2,2,0,2,4,6,NA
+7,B.Tech,3,A,2,Discrete Mathematics,2,0,1,2,2,4,AS
+8,B.Tech,3,A,2,Technical Communication,0,0,1,0,2,2,AC
+9,B.Tech,3,A,2,Community Service,0,0,0,0,0,0,MJ
+10,B.Tech,3,A,2,Programming with Python,1,2,0,1,4,5,HG
+11,B.Tech,3,B,1,Signals and Systems,2,2,0,2,2,4,AP
+12,B.Tech,3,B,1,Computer Organization and Architecture,3,0,0,3,0,3,ADS
+13,B.Tech,3,B,1,Data Structures and Algorithms,3,0,0,3,0,3,AR
+14,B.Tech,3,B,1,Data Structures and Algorithms Lab,0,2,0,0,2,2,AR
+15,B.Tech,3,B,1,Principles of Economics and Management,3,0,0,3,0,3,MG
+16,B.Tech,3,B,1,Probability and Statistics,2,2,0,2,2,4,AS
+17,B.Tech,3,B,1,Discrete Mathematics,2,0,1,2,1,3,NG
+18,B.Tech,3,B,1,Technical Communication,0,0,1,0,1,1,AC
+19,B.Tech,3,B,1,Community Service,0,0,0,0,0,0,MJ
+20,B.Tech,3,B,1,Programming with Python,1,2,0,1,2,3,SG

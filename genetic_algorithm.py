@@ -171,7 +171,7 @@ class GeneticAlgorithm:
     CHANGE 1, 2, 3, 4: Updated for dynamic slots, custom configs, and faculty constraints
     """
     
-    def __init__(self, population_size=100, mutation_rate=0.1, 
+    def __init__(self, population_size=200, mutation_rate=0.1, 
                  crossover_rate=0.8, elitism_size=5):
         self.population_size = population_size
         self.mutation_rate = mutation_rate
