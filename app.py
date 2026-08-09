@@ -4145,7 +4145,7 @@ class SmartTimetableScheduler:
             st.markdown("#### 🧬 Genetic Algorithm Only Mode")
             col1, col2, col3 = st.columns(3)
             col1.metric("Population", self.genetic_algorithm.population_size)
-            col2.metric("Generations", "50")
+            col2.metric("Generations", "75")
             col3.metric("Status", "Initializing...")
             
             ga_progress = st.progress(0)
