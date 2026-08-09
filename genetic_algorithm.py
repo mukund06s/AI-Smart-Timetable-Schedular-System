@@ -455,6 +455,8 @@ class GeneticAlgorithm:
         tasks = []
         for block in parallel_blocks: tasks.append(('lab', block))
         for subject in theory_subjects.values(): tasks.append(('theory', subject))
+        # Shuffle so all class types (lab, tutorial, theory) compete equally for any slot.
+        # Placement is decided purely by: faculty free + room free + no clash + constraints.
         random.shuffle(tasks)
         for task_type, task_data in tasks:
             if task_type == 'lab':
@@ -649,84 +651,94 @@ class GeneticAlgorithm:
                 days_used_for_subject = set()
             
                 while sessions_scheduled < sessions_needed and attempts < max_attempts:
+                    attempts += 1
                     day = random.choice(self.days)
                     slot = random.choice(available_slots)
                     slot_key = self.slot_generator.get_slot_key(slot)
-                
-                    # UNIVERSAL-FIX: Skip if this subject is already placed on this day
+
+                    # ONE session per day per subject — skip if already placed on this day
                     if day in days_used_for_subject:
-                        attempts += 1
                         continue
-                
-                    # UNIVERSAL-FIX: Theory is whole-section. A slot is valid for theory ONLY if
-                    # it is completely empty (None). If ANY class (lab/tutorial) is there already,
-                    # theory cannot go there because students in that batch would be double-booked.
+
+                    # RULE: No theory in the LAST slot of the day (universal academic rule)
+                    last_slot = available_slots[-1]
+                    last_slot_key = self.slot_generator.get_slot_key(last_slot)
+                    if slot_key == last_slot_key:
+                        continue
+                    # Theory is whole-section — slot must be completely empty
+                    # (None, or a LUNCH/BREAK placeholder that won't conflict)
                     slot_val = batch_schedule[day].get(slot_key)
-                    slot_is_empty = slot_val is None
-                
-                    if slot_is_empty:
-                        faculty = subject.get('faculty', 'TBD')
-                        key = f"{day}_{slot_key}"
-                    
-                        slot_index = available_slots.index(slot)
-                        if constraint_engine:
-                            if not constraint_engine.is_slot_allowed(day, slot, slot_index, len(available_slots), subject, faculty, program, year, ""):
-                                attempts += 1
-                                continue
-                    
-                        is_morning = slot['start'] == MORNING_SLOT_START
-                        if is_morning and morning_counts.get(faculty, 0) >= FACULTY_MORNING_LIMIT:
-                            attempts += 1
+                    if slot_val is None:
+                        slot_is_empty = True
+                    elif isinstance(slot_val, dict) and slot_val.get('type') in ('LUNCH', 'BREAK'):
+                        slot_is_empty = True
+                    else:
+                        slot_is_empty = False
+
+                    if not slot_is_empty:
+                        continue
+
+                    faculty = subject.get('faculty', 'TBD')
+                    key = f"{day}_{slot_key}"
+
+                    slot_index = available_slots.index(slot)
+                    if constraint_engine:
+                        if not constraint_engine.is_slot_allowed(day, slot, slot_index, len(available_slots), subject, faculty, program, year, ''):
                             continue
-                    
-                        if faculty in faculty_lunch_unions:
-                            if not self._is_slot_available_for_faculty(slot, faculty_lunch_unions[faculty]):
-                                attempts += 1
-                                continue
-                            
-                        if key not in faculty_tracker[faculty]:
-                            room_name = subject.get('assigned_room', None)
-                            if not room_name:
-                                selected_room = None
-                                if rooms:
-                                    classrooms = [r for r in rooms if r.get('type') == 'Classroom' or 'Classroom' in r.get('name', '')]
-                                    random.shuffle(classrooms)
-                                    for r in classrooms:
-                                        if key not in room_tracker[r['name']]:
-                                            selected_room = r
-                                            break
-                                    if not selected_room:
-                                        for r in rooms:
-                                            if key not in room_tracker[r['name']]:
-                                                selected_room = r
-                                                break
-                                room_name = selected_room['name'] if selected_room else 'TBD'
-                            
-                            if room_name == 'TBD' or key not in room_tracker.get(room_name, set()):
-                                batch_schedule[day][slot_key] = {
-                                    'subject': subject['name'],
-                                    'subject_code': subject.get('code', ''),
-                                    'faculty': faculty,
-                                    'room': room_name,
-                                    'room_locked': subject.get('assigned_room') is not None,  # ROOM-FIX
-                                    'type': subject.get('type', 'Theory'),
-                                    'duration': slot['duration'],
-                                    'start': slot['start'],
-                                    'end': slot['end'],
-                                    'batch': '' # No batch label for theory per rules
-                                }
-                            
-                                if faculty != 'TBD':
-                                    faculty_tracker[faculty].add(key)
-                                if room_name != 'TBD':
-                                    room_tracker[room_name].add(key)
-                                if is_morning:
-                                    morning_counts[faculty] += 1
-                            
-                                # Mark this day as used for this subject (1 session per day)
-                                days_used_for_subject.add(day)
-                                sessions_scheduled += 1
-                    attempts += 1
+
+                    is_morning = slot['start'] == MORNING_SLOT_START
+                    if is_morning and morning_counts.get(faculty, 0) >= FACULTY_MORNING_LIMIT:
+                        continue
+
+                    if faculty in faculty_lunch_unions:
+                        if not self._is_slot_available_for_faculty(slot, faculty_lunch_unions[faculty]):
+                            continue
+
+                    if key in faculty_tracker[faculty]:
+                        continue
+
+                    room_name = subject.get('assigned_room', None)
+                    if not room_name:
+                        selected_room = None
+                        if rooms:
+                            classrooms = [r for r in rooms if r.get('type') == 'Classroom' or 'Classroom' in r.get('name', '')]
+                            random.shuffle(classrooms)
+                            for r in classrooms:
+                                if key not in room_tracker[r['name']]:
+                                    selected_room = r
+                                    break
+                            if not selected_room:
+                                for r in rooms:
+                                    if key not in room_tracker[r['name']]:
+                                        selected_room = r
+                                        break
+                        room_name = selected_room['name'] if selected_room else 'TBD'
+
+                    if room_name != 'TBD' and key in room_tracker.get(room_name, set()):
+                        continue
+
+                    # All checks passed — place the theory class
+                    batch_schedule[day][slot_key] = {
+                        'subject': subject['name'],
+                        'subject_code': subject.get('code', ''),
+                        'faculty': faculty,
+                        'room': room_name,
+                        'room_locked': subject.get('assigned_room') is not None,
+                        'type': subject.get('type', 'Theory'),
+                        'duration': slot['duration'],
+                        'start': slot['start'],
+                        'end': slot['end'],
+                        'batch': ''
+                    }
+                    if faculty != 'TBD':
+                        faculty_tracker[faculty].add(key)
+                    if room_name != 'TBD':
+                        room_tracker[room_name].add(key)
+                    if is_morning:
+                        morning_counts[faculty] += 1
+                    # Mark this day as used — ensures next session lands on a DIFFERENT day
+                    days_used_for_subject.add(day)
+                    sessions_scheduled += 1
                 
         return batch_schedule
         
@@ -743,33 +755,40 @@ class GeneticAlgorithm:
         
         new_subj_name = str(new_subject.get('name', '')).strip().upper()
         
-        # UNIVERSAL-FIX: If the slot already holds a whole-section class (theory/tutorial with no batch),
-        # a batch-specific lab can NEVER go there — every student in that batch is already occupied.
+        # FIX-4: Check if a parallel lab/tutorial can share this slot.
+        # Rules:
+#   1. Slot must contain only lab/tutorial/practical classes (not theory).
+#   2. The same batch cannot already be in the slot.
+#   3. A different batch doing the SAME subject is the correct parallel pattern -> allow.
         if isinstance(current_slot_val, dict):
             curr_type = str(current_slot_val.get('type', '')).upper()
-            curr_batch = str(current_slot_val.get('batch', '')).strip().replace('.0', '')
-            # If existing class is whole-section (empty batch or theory), reject
-            if curr_batch in ('', '0', 'theory', 'Theory') and 'LUNCH' not in curr_type and 'BREAK' not in curr_type:
-                return False
-            curr_subj = str(current_slot_val.get('subject', '')).strip().upper()
-            # CHANGE PARALLEL-LAB-FIX-11: Enforce DIFFERENT subjects for parallel batches
-            if ('LAB' in curr_type or 'TUTORIAL' in curr_type or 'PRACTICAL' in curr_type) and curr_batch != new_batch and curr_subj != new_subj_name:
+            # LUNCH/BREAK slots are always free
+            if 'LUNCH' in curr_type or 'BREAK' in curr_type:
                 return True
-            return False
+            # Only lab/tutorial/practical may share a slot
+            if not ('LAB' in curr_type or 'TUTORIAL' in curr_type or 'PRACTICAL' in curr_type):
+                return False
+            curr_batch = str(current_slot_val.get('batch', '1')).strip().replace('.0', '')
+            # Same batch already in slot -> clash
+            if curr_batch == new_batch:
+                return False
+            # Different batch, same subject -> valid parallel
+            curr_subj = str(current_slot_val.get('subject', '')).strip().upper()
+            if curr_subj == new_subj_name and curr_batch != new_batch:
+                return True
+            # Different batch, different subject -> also allow (e.g. Batch1 Physics Lab + Batch2 Chem Lab)
+            return True
             
         if isinstance(current_slot_val, list):
             for c in current_slot_val:
                 curr_type = str(c.get('type', '')).upper()
-                curr_batch_c = str(c.get('batch', '')).strip().replace('.0', '')
-                # If any entry is whole-section, reject
-                if curr_batch_c in ('', '0', 'theory', 'Theory') and 'LUNCH' not in curr_type and 'BREAK' not in curr_type:
-                    return False
-                curr_subj = str(c.get('subject', '')).strip().upper()
+                if 'LUNCH' in curr_type or 'BREAK' in curr_type:
+                    continue
+                # Non-lab/tutorial entries mean the slot is occupied by theory -> reject
                 if not ('LAB' in curr_type or 'TUTORIAL' in curr_type or 'PRACTICAL' in curr_type):
                     return False
-                if str(c.get('batch', '1')) == new_batch:
-                    return False
-                if curr_subj == new_subj_name:
+                # Same batch already present -> clash
+                if str(c.get('batch', '1')).strip().replace('.0', '') == new_batch:
                     return False
             return True
             
@@ -1026,7 +1045,7 @@ class GeneticAlgorithm:
         # CHANGE UNIVERSAL-BATCH-FIX-6: Hour-validation penalty
         # Penalise deviations from the target weekly_hours for each subject
         hour_violations = self._check_hour_violations(schedule, constraints)
-        score -= hour_violations * 50000
+        score -= hour_violations * 2000
         
         # Ensure Part 1 and Part 2 are back-to-back
         contiguous_lab_violations = self._check_contiguous_lab_violations(schedule)
