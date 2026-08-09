@@ -452,95 +452,90 @@ class GeneticAlgorithm:
         # the same tutorial/lab session from being placed twice on the same day.
         block_days_used = defaultdict(set)  # key=(subject_name, batch) -> set of days used
 
-        for block in parallel_blocks:
-            block_duration = max([item['hours'] for item in block])
+        tasks = []
+        for block in parallel_blocks: tasks.append(('lab', block))
+        for subject in theory_subjects.values(): tasks.append(('theory', subject))
+        random.shuffle(tasks)
+        for task_type, task_data in tasks:
+            if task_type == 'lab':
+                block = task_data
+                block_duration = max([item['hours'] for item in block])
             
-            attempts = 0
-            while attempts < 2000:
-                attempts += 1
-                day = random.choice(self.days)
+                attempts = 0
+                while attempts < 2000:
+                    attempts += 1
+                    day = random.choice(self.days)
 
-                # UNIVERSAL-FIX: For 1-hour sessions (tutorials), enforce different days per subject+batch
-                if block_duration == 1:
-                    skip = False
+                    # UNIVERSAL-FIX: For 1-hour sessions (tutorials), enforce different days per subject+batch
+                    if block_duration == 1:
+                        skip = False
+                        for item in block:
+                            subj_key = (item['subject'].get('name', ''), str(item['subject'].get('batch', '')))
+                            if day in block_days_used[subj_key]:
+                                skip = True
+                                break
+                        if skip:
+                            continue
+                    idx = random.randint(0, len(available_slots) - max(1, block_duration))
+                    slot1 = available_slots[idx]
+                    slot2 = available_slots[idx+1] if block_duration == 2 else None
+                
+                    if block_duration == 2:
+                        if self.slot_generator.time_to_minutes(slot2['start']) != self.slot_generator.time_to_minutes(slot1['end']):
+                            continue
+                    
+                    slot1_key = self.slot_generator.get_slot_key(slot1)
+                    slot2_key = self.slot_generator.get_slot_key(slot2) if slot2 else None
+                
+                    if batch_schedule[day].get(slot1_key) is not None:
+                        continue
+                    if block_duration == 2 and batch_schedule[day].get(slot2_key) is not None:
+                        continue
+                    
+                    key1 = f"{day}_{slot1_key}"
+                    key2 = f"{day}_{slot2_key}" if slot2 else None
+                
+                    valid = True
                     for item in block:
-                        subj_key = (item['subject'].get('name', ''), str(item['subject'].get('batch', '')))
-                        if day in block_days_used[subj_key]:
-                            skip = True
-                            break
-                    if skip:
-                        continue
-                idx = random.randint(0, len(available_slots) - max(1, block_duration))
-                slot1 = available_slots[idx]
-                slot2 = available_slots[idx+1] if block_duration == 2 else None
-                
-                if block_duration == 2:
-                    if self.slot_generator.time_to_minutes(slot2['start']) != self.slot_generator.time_to_minutes(slot1['end']):
-                        continue
+                        subj = item['subject']
+                        item_hours = item['hours']
+                        faculty = subj.get('faculty', 'TBD')
                     
-                slot1_key = self.slot_generator.get_slot_key(slot1)
-                slot2_key = self.slot_generator.get_slot_key(slot2) if slot2 else None
-                
-                if batch_schedule[day].get(slot1_key) is not None:
-                    continue
-                if block_duration == 2 and batch_schedule[day].get(slot2_key) is not None:
-                    continue
-                    
-                key1 = f"{day}_{slot1_key}"
-                key2 = f"{day}_{slot2_key}" if slot2 else None
-                
-                valid = True
-                for item in block:
-                    subj = item['subject']
-                    item_hours = item['hours']
-                    faculty = subj.get('faculty', 'TBD')
-                    
-                    if faculty != 'TBD':
-                        if key1 in faculty_tracker[faculty]:
-                            valid = False; break
-                        if item_hours == 2 and key2 in faculty_tracker[faculty]:
-                            valid = False; break
+                        if faculty != 'TBD':
+                            if key1 in faculty_tracker[faculty]:
+                                valid = False; break
+                            if item_hours == 2 and key2 in faculty_tracker[faculty]:
+                                valid = False; break
                             
-                    if faculty in faculty_lunch_unions:
-                        if not self._is_slot_available_for_faculty(slot1, faculty_lunch_unions[faculty]):
-                            valid = False; break
-                        if item_hours == 2 and not self._is_slot_available_for_faculty(slot2, faculty_lunch_unions[faculty]):
-                            valid = False; break
+                        if faculty in faculty_lunch_unions:
+                            if not self._is_slot_available_for_faculty(slot1, faculty_lunch_unions[faculty]):
+                                valid = False; break
+                            if item_hours == 2 and not self._is_slot_available_for_faculty(slot2, faculty_lunch_unions[faculty]):
+                                valid = False; break
                             
-                    if slot1['start'] == MORNING_SLOT_START and morning_counts[faculty] >= FACULTY_MORNING_LIMIT:
-                        valid = False; break
+                        if slot1['start'] == MORNING_SLOT_START and morning_counts[faculty] >= FACULTY_MORNING_LIMIT:
+                            valid = False; break
                         
-                    if constraint_engine:
-                        if not constraint_engine.is_slot_allowed(day, slot1, idx, len(available_slots), subj, faculty, program, year, batch):
-                            valid = False; break
-                        if item_hours == 2 and not constraint_engine.is_slot_allowed(day, slot2, idx+1, len(available_slots), subj, faculty, program, year, batch):
-                            valid = False; break
+                        if constraint_engine:
+                            if not constraint_engine.is_slot_allowed(day, slot1, idx, len(available_slots), subj, faculty, program, year, batch):
+                                valid = False; break
+                            if item_hours == 2 and not constraint_engine.is_slot_allowed(day, slot2, idx+1, len(available_slots), subj, faculty, program, year, batch):
+                                valid = False; break
                 
-                if not valid:
-                    continue
+                    if not valid:
+                        continue
                     
-                assigned_rooms = []
-                for item in block:
-                    subj = item['subject']
-                    item_hours = item['hours']
-                    room_name = subj.get('assigned_room', None)
-                    if not room_name:
-                        avail = None
-                        if rooms:
-                            lab_rooms = [r for r in rooms if r.get('type') == 'Lab' or 'Lab' in r.get('name', '')]
-                            random.shuffle(lab_rooms)
-                            for r in lab_rooms:
-                                if key1 not in room_tracker[r['name']]:
-                                    if item_hours == 2 and key2 in room_tracker[r['name']]:
-                                        continue
-                                    if r['name'] in assigned_rooms:
-                                        continue
-                                    avail = r['name']
-                                    break
-                            if not avail:
-                                fallback_rooms = [r for r in rooms if r.get('type') != 'Lab']
-                                random.shuffle(fallback_rooms)
-                                for r in fallback_rooms:
+                    assigned_rooms = []
+                    for item in block:
+                        subj = item['subject']
+                        item_hours = item['hours']
+                        room_name = subj.get('assigned_room', None)
+                        if not room_name:
+                            avail = None
+                            if rooms:
+                                lab_rooms = [r for r in rooms if r.get('type') == 'Lab' or 'Lab' in r.get('name', '')]
+                                random.shuffle(lab_rooms)
+                                for r in lab_rooms:
                                     if key1 not in room_tracker[r['name']]:
                                         if item_hours == 2 and key2 in room_tracker[r['name']]:
                                             continue
@@ -548,178 +543,190 @@ class GeneticAlgorithm:
                                             continue
                                         avail = r['name']
                                         break
-                        room_name = avail if avail else 'Lab'
+                                if not avail:
+                                    fallback_rooms = [r for r in rooms if r.get('type') != 'Lab']
+                                    random.shuffle(fallback_rooms)
+                                    for r in fallback_rooms:
+                                        if key1 not in room_tracker[r['name']]:
+                                            if item_hours == 2 and key2 in room_tracker[r['name']]:
+                                                continue
+                                            if r['name'] in assigned_rooms:
+                                                continue
+                                            avail = r['name']
+                                            break
+                            room_name = avail if avail else 'Lab'
                         
-                    assigned_rooms.append(room_name)
-                    if room_name != 'Lab' and room_name != 'TBD':
-                        if key1 in room_tracker.get(room_name, set()):
-                            valid = False; break
-                        if item_hours == 2 and key2 in room_tracker.get(room_name, set()):
-                            valid = False; break
+                        assigned_rooms.append(room_name)
+                        if room_name != 'Lab' and room_name != 'TBD':
+                            if key1 in room_tracker.get(room_name, set()):
+                                valid = False; break
+                            if item_hours == 2 and key2 in room_tracker.get(room_name, set()):
+                                valid = False; break
                             
-                if not valid:
-                    continue
-                    
-                # Schedule successfully
-                classes_1 = []
-                classes_2 = []
-                for item, room_name in zip(block, assigned_rooms):
-                    subj = item['subject']
-                    item_hours = item['hours']
-                    faculty = subj.get('faculty', 'TBD')
-                    b_val = str(subj.get('batch', '1')).replace('.0', '')
-                    
-                    is_lab_str = 'LAB' in str(subj.get('type','')).upper()
-                    
-                    if item_hours == 1:
-                        c1 = {
-                            'subject': subj['name'],
-                            'subject_code': subj.get('code', ''),
-                            'faculty': faculty,
-                            'room': room_name,
-                            'room_locked': subj.get('assigned_room') is not None,  # ROOM-FIX
-                            'type': 'Lab' if is_lab_str else 'Tutorial',
-                            'duration': slot1['duration'],
-                            'start': slot1['start'],
-                            'end': slot1['end'],
-                            'batch': b_val
-                        }
-                        classes_1.append(c1)
-                        if faculty != 'TBD':
-                            faculty_tracker[faculty].add(key1)
-                        if room_name != 'TBD' and room_name != 'Lab':
-                            room_tracker[room_name].add(key1)
-                    else:
-                        c1 = {
-                            'subject': subj['name'],
-                            'subject_code': subj.get('code', ''),
-                            'faculty': faculty,
-                            'room': room_name,
-                            'room_locked': subj.get('assigned_room') is not None,  # ROOM-FIX
-                            'type': 'Lab (Part 1)' if is_lab_str else 'Tutorial (Part 1)',
-                            'duration': slot1['duration'],
-                            'start': slot1['start'],
-                            'end': slot1['end'],
-                            'batch': b_val
-                        }
-                        c2 = c1.copy()
-                        c2['type'] = 'Lab (Part 2)' if is_lab_str else 'Tutorial (Part 2)'
-                        c2['duration'] = slot2['duration']
-                        c2['start'] = slot2['start']
-                        c2['end'] = slot2['end']
-                        
-                        classes_1.append(c1)
-                        classes_2.append(c2)
-                        
-                        if faculty != 'TBD':
-                            faculty_tracker[faculty].add(key1)
-                            faculty_tracker[faculty].add(key2)
-                        if room_name != 'TBD' and room_name != 'Lab':
-                            room_tracker[room_name].add(key1)
-                            room_tracker[room_name].add(key2)
-                            
-                    if slot1['start'] == MORNING_SLOT_START:
-                        morning_counts[faculty] += 1
-                        
-                batch_schedule[day][slot1_key] = classes_1 if len(classes_1) > 1 else classes_1[0]
-                if block_duration == 2 and classes_2:
-                    batch_schedule[day][slot2_key] = classes_2 if len(classes_2) > 1 else classes_2[0]
-                # UNIVERSAL-FIX: Record day used for each subject+batch to enforce day-spread
-                for item in block:
-                    subj_key = (item['subject'].get('name', ''), str(item['subject'].get('batch', '')))
-                    block_days_used[subj_key].add(day)
-                break
-
-        # --- 2. Schedule Theory ---
-        for subject in theory_subjects.values():
-            sessions_needed = int(subject.get('weekly_hours', 3))
-            sessions_scheduled = 0
-            attempts = 0
-            max_attempts = 3000
-            # UNIVERSAL-FIX: Track days already used for this theory subject.
-            # Each theory session must land on a DIFFERENT day to prevent
-            # duplicate sessions on the same day (e.g. LA Theory at 9-10 AND 10-11 same day).
-            days_used_for_subject = set()
-            
-            while sessions_scheduled < sessions_needed and attempts < max_attempts:
-                day = random.choice(self.days)
-                slot = random.choice(available_slots)
-                slot_key = self.slot_generator.get_slot_key(slot)
-                
-                # UNIVERSAL-FIX: Skip if this subject is already placed on this day
-                if day in days_used_for_subject:
-                    attempts += 1
-                    continue
-                
-                # UNIVERSAL-FIX: Theory is whole-section. A slot is valid for theory ONLY if
-                # it is completely empty (None). If ANY class (lab/tutorial) is there already,
-                # theory cannot go there because students in that batch would be double-booked.
-                slot_val = batch_schedule[day].get(slot_key)
-                slot_is_empty = slot_val is None
-                
-                if slot_is_empty:
-                    faculty = subject.get('faculty', 'TBD')
-                    key = f"{day}_{slot_key}"
-                    
-                    slot_index = available_slots.index(slot)
-                    if constraint_engine:
-                        if not constraint_engine.is_slot_allowed(day, slot, slot_index, len(available_slots), subject, faculty, program, year, ""):
-                            attempts += 1
-                            continue
-                    
-                    is_morning = slot['start'] == MORNING_SLOT_START
-                    if is_morning and morning_counts.get(faculty, 0) >= FACULTY_MORNING_LIMIT:
-                        attempts += 1
+                    if not valid:
                         continue
                     
-                    if faculty in faculty_lunch_unions:
-                        if not self._is_slot_available_for_faculty(slot, faculty_lunch_unions[faculty]):
+                    # Schedule successfully
+                    classes_1 = []
+                    classes_2 = []
+                    for item, room_name in zip(block, assigned_rooms):
+                        subj = item['subject']
+                        item_hours = item['hours']
+                        faculty = subj.get('faculty', 'TBD')
+                        b_val = str(subj.get('batch', '1')).replace('.0', '')
+                    
+                        is_lab_str = 'LAB' in str(subj.get('type','')).upper()
+                    
+                        if item_hours == 1:
+                            c1 = {
+                                'subject': subj['name'],
+                                'subject_code': subj.get('code', ''),
+                                'faculty': faculty,
+                                'room': room_name,
+                                'room_locked': subj.get('assigned_room') is not None,  # ROOM-FIX
+                                'type': 'Lab' if is_lab_str else 'Tutorial',
+                                'duration': slot1['duration'],
+                                'start': slot1['start'],
+                                'end': slot1['end'],
+                                'batch': b_val
+                            }
+                            classes_1.append(c1)
+                            if faculty != 'TBD':
+                                faculty_tracker[faculty].add(key1)
+                            if room_name != 'TBD' and room_name != 'Lab':
+                                room_tracker[room_name].add(key1)
+                        else:
+                            c1 = {
+                                'subject': subj['name'],
+                                'subject_code': subj.get('code', ''),
+                                'faculty': faculty,
+                                'room': room_name,
+                                'room_locked': subj.get('assigned_room') is not None,  # ROOM-FIX
+                                'type': 'Lab (Part 1)' if is_lab_str else 'Tutorial (Part 1)',
+                                'duration': slot1['duration'],
+                                'start': slot1['start'],
+                                'end': slot1['end'],
+                                'batch': b_val
+                            }
+                            c2 = c1.copy()
+                            c2['type'] = 'Lab (Part 2)' if is_lab_str else 'Tutorial (Part 2)'
+                            c2['duration'] = slot2['duration']
+                            c2['start'] = slot2['start']
+                            c2['end'] = slot2['end']
+                        
+                            classes_1.append(c1)
+                            classes_2.append(c2)
+                        
+                            if faculty != 'TBD':
+                                faculty_tracker[faculty].add(key1)
+                                faculty_tracker[faculty].add(key2)
+                            if room_name != 'TBD' and room_name != 'Lab':
+                                room_tracker[room_name].add(key1)
+                                room_tracker[room_name].add(key2)
+                            
+                        if slot1['start'] == MORNING_SLOT_START:
+                            morning_counts[faculty] += 1
+                        
+                    batch_schedule[day][slot1_key] = classes_1 if len(classes_1) > 1 else classes_1[0]
+                    if block_duration == 2 and classes_2:
+                        batch_schedule[day][slot2_key] = classes_2 if len(classes_2) > 1 else classes_2[0]
+                    # UNIVERSAL-FIX: Record day used for each subject+batch to enforce day-spread
+                    for item in block:
+                        subj_key = (item['subject'].get('name', ''), str(item['subject'].get('batch', '')))
+                        block_days_used[subj_key].add(day)
+                    break
+
+            elif task_type == 'theory':
+                # --- 2. Schedule Theory ---
+                subject = task_data
+                sessions_needed = int(subject.get('weekly_hours', 3))
+                sessions_scheduled = 0
+                attempts = 0
+                max_attempts = 3000
+                # UNIVERSAL-FIX: Track days already used for this theory subject.
+                # Each theory session must land on a DIFFERENT day to prevent
+                # duplicate sessions on the same day (e.g. LA Theory at 9-10 AND 10-11 same day).
+                days_used_for_subject = set()
+            
+                while sessions_scheduled < sessions_needed and attempts < max_attempts:
+                    day = random.choice(self.days)
+                    slot = random.choice(available_slots)
+                    slot_key = self.slot_generator.get_slot_key(slot)
+                
+                    # UNIVERSAL-FIX: Skip if this subject is already placed on this day
+                    if day in days_used_for_subject:
+                        attempts += 1
+                        continue
+                
+                    # UNIVERSAL-FIX: Theory is whole-section. A slot is valid for theory ONLY if
+                    # it is completely empty (None). If ANY class (lab/tutorial) is there already,
+                    # theory cannot go there because students in that batch would be double-booked.
+                    slot_val = batch_schedule[day].get(slot_key)
+                    slot_is_empty = slot_val is None
+                
+                    if slot_is_empty:
+                        faculty = subject.get('faculty', 'TBD')
+                        key = f"{day}_{slot_key}"
+                    
+                        slot_index = available_slots.index(slot)
+                        if constraint_engine:
+                            if not constraint_engine.is_slot_allowed(day, slot, slot_index, len(available_slots), subject, faculty, program, year, ""):
+                                attempts += 1
+                                continue
+                    
+                        is_morning = slot['start'] == MORNING_SLOT_START
+                        if is_morning and morning_counts.get(faculty, 0) >= FACULTY_MORNING_LIMIT:
                             attempts += 1
                             continue
+                    
+                        if faculty in faculty_lunch_unions:
+                            if not self._is_slot_available_for_faculty(slot, faculty_lunch_unions[faculty]):
+                                attempts += 1
+                                continue
                             
-                    if key not in faculty_tracker[faculty]:
-                        room_name = subject.get('assigned_room', None)
-                        if not room_name:
-                            selected_room = None
-                            if rooms:
-                                classrooms = [r for r in rooms if r.get('type') == 'Classroom' or 'Classroom' in r.get('name', '')]
-                                random.shuffle(classrooms)
-                                for r in classrooms:
-                                    if key not in room_tracker[r['name']]:
-                                        selected_room = r
-                                        break
-                                if not selected_room:
-                                    for r in rooms:
+                        if key not in faculty_tracker[faculty]:
+                            room_name = subject.get('assigned_room', None)
+                            if not room_name:
+                                selected_room = None
+                                if rooms:
+                                    classrooms = [r for r in rooms if r.get('type') == 'Classroom' or 'Classroom' in r.get('name', '')]
+                                    random.shuffle(classrooms)
+                                    for r in classrooms:
                                         if key not in room_tracker[r['name']]:
                                             selected_room = r
                                             break
-                            room_name = selected_room['name'] if selected_room else 'TBD'
+                                    if not selected_room:
+                                        for r in rooms:
+                                            if key not in room_tracker[r['name']]:
+                                                selected_room = r
+                                                break
+                                room_name = selected_room['name'] if selected_room else 'TBD'
                             
-                        if room_name == 'TBD' or key not in room_tracker.get(room_name, set()):
-                            batch_schedule[day][slot_key] = {
-                                'subject': subject['name'],
-                                'subject_code': subject.get('code', ''),
-                                'faculty': faculty,
-                                'room': room_name,
-                                'room_locked': subject.get('assigned_room') is not None,  # ROOM-FIX
-                                'type': subject.get('type', 'Theory'),
-                                'duration': slot['duration'],
-                                'start': slot['start'],
-                                'end': slot['end'],
-                                'batch': '' # No batch label for theory per rules
-                            }
+                            if room_name == 'TBD' or key not in room_tracker.get(room_name, set()):
+                                batch_schedule[day][slot_key] = {
+                                    'subject': subject['name'],
+                                    'subject_code': subject.get('code', ''),
+                                    'faculty': faculty,
+                                    'room': room_name,
+                                    'room_locked': subject.get('assigned_room') is not None,  # ROOM-FIX
+                                    'type': subject.get('type', 'Theory'),
+                                    'duration': slot['duration'],
+                                    'start': slot['start'],
+                                    'end': slot['end'],
+                                    'batch': '' # No batch label for theory per rules
+                                }
                             
-                            if faculty != 'TBD':
-                                faculty_tracker[faculty].add(key)
-                            if room_name != 'TBD':
-                                room_tracker[room_name].add(key)
-                            if is_morning:
-                                morning_counts[faculty] += 1
+                                if faculty != 'TBD':
+                                    faculty_tracker[faculty].add(key)
+                                if room_name != 'TBD':
+                                    room_tracker[room_name].add(key)
+                                if is_morning:
+                                    morning_counts[faculty] += 1
                             
-                            # Mark this day as used for this subject (1 session per day)
-                            days_used_for_subject.add(day)
-                            sessions_scheduled += 1
-                attempts += 1
+                                # Mark this day as used for this subject (1 session per day)
+                                days_used_for_subject.add(day)
+                                sessions_scheduled += 1
+                    attempts += 1
                 
         return batch_schedule
         

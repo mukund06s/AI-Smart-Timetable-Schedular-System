@@ -3771,7 +3771,7 @@ class SmartTimetableScheduler:
         
         with details_container:
             col1.metric("Population Size", self.genetic_algorithm.population_size)
-            col2.metric("Generations", "200")
+            col2.metric("Generations", "75")
             col3.metric("Mutation Rate", f"{self.genetic_algorithm.mutation_rate*100:.0f}%")
         
         ga_status.text("   └─ Evolving population...")
@@ -3779,7 +3779,7 @@ class SmartTimetableScheduler:
         # Run GA with progress
         optimized_schedule = self._evolve_with_progress(
             constraints, 
-            generations=200,
+            generations=75,
             ga_progress=ga_progress,
             ga_status=ga_status,
             ga_metrics_placeholder=ga_metrics,
@@ -4169,7 +4169,7 @@ class SmartTimetableScheduler:
         
         status_text.info("🧬 Running Genetic Algorithm optimization...")
         
-        optimized_schedule = self.genetic_algorithm.evolve(constraints, generations=200, verbose=False)
+        optimized_schedule = self.genetic_algorithm.evolve(constraints, generations=75, verbose=False)
         
         if optimized_schedule:
             self._add_lunch_and_breaks(optimized_schedule, semester_config)
