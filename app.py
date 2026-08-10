@@ -3940,11 +3940,11 @@ class SmartTimetableScheduler:
             st.markdown("#### 📊 Generation Summary")
             final_col1, final_col2, final_col3, final_col4 = st.columns(4)
 
-            _total_subjects = len(set(r['subject'] for r in _completion_report)) if _completion_report else len(classes)
+            _total_subjects = len(_completion_report) if _completion_report else len(classes)
             _complete_subjs = sum(1 for r in _completion_report if r['ok']) if _completion_report else _total_subjects
             final_col1.metric("✅ Subjects Complete",
                               f"{_complete_subjs}/{_total_subjects}",
-                              delta="All done" if _complete_subjs == _total_subjects else f"{_total_subjects-_complete_subjs} short")
+                              delta="All done" if _complete_subjs == _total_subjects else f"{_complete_subjs - _total_subjects} short")
             final_col2.metric("🎯 Faculty Assigned", assignments_made)
             clash_icon = "✅" if final_clash_count == 0 else "⚠️"
             final_col3.metric(f"{clash_icon} Clashes", final_clash_count)

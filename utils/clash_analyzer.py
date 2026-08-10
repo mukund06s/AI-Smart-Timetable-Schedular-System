@@ -11,7 +11,7 @@ class ClashAnalyzer:
     """Detect and structure scheduling clashes for agent consumption."""
 
     SKIP_TYPES = frozenset({"LUNCH", "BREAK"})
-    INVALID_FACULTY = frozenset({"", "TBD"})
+    INVALID_FACULTY = frozenset({"", "TBD", "NA"})
     INVALID_ROOMS = frozenset({"", "TBD", "Cafeteria"})
 
     def detect_all_clashes(

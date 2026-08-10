@@ -560,6 +560,8 @@ class GeneticAlgorithm:
                         
                         assigned_rooms.append(room_name)
                         if room_name != 'Lab' and room_name != 'TBD':
+                            if assigned_rooms.count(room_name) > 1:
+                                valid = False; break
                             if key1 in room_tracker.get(room_name, set()):
                                 valid = False; break
                             if item_hours == 2 and key2 in room_tracker.get(room_name, set()):
