@@ -14,16 +14,16 @@ logger = get_logger(__name__)
 
 
 def get_anthropic_api_key() -> str:
-    """Resolve Anthropic API key from Streamlit secrets or environment."""
+    """Resolve Gemini API key from Streamlit secrets or environment."""
     try:
         import streamlit as st
 
-        key = st.secrets["agent"]["ANTHROPIC_API_KEY"]
+        key = st.secrets["agent"].get("GEMINI_API_KEY")
         if key:
             return key
     except Exception:
         pass
-    return os.getenv("ANTHROPIC_API_KEY", "")
+    return os.getenv("GEMINI_API_KEY", "")
 
 
 def format_turn_log_entry(turn: int, response: Any) -> List[str]:

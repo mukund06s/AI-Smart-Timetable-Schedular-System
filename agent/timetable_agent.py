@@ -51,11 +51,11 @@ class TimetableAgent:
         if llm_client is not None:
             self.client = llm_client
         elif self.api_key:
-            import anthropic
-
-            self.client = anthropic.Anthropic(api_key=self.api_key)
+            from agent.gemini_wrapper import GeminiAnthropicWrapper
+            self.client = GeminiAnthropicWrapper(api_key=self.api_key)
         else:
             self.client = None
+
 
     def repair_schedule(
         self,
