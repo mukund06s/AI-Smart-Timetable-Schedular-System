@@ -130,9 +130,9 @@ class TimetableAgentE2ETests(unittest.TestCase):
             }
         ]
         message = build_initial_user_message(clashes)
-        self.assertIn("Please repair the following 1 clashes", message)
+        self.assertIn("Please repair the following 1 timetable issue(s)", message)
         self.assertIn("Dr. Mehta", message)
-        self.assertIn("Use your tools to fix each clash one by one.", message)
+        self.assertIn("tool_place_class", message)
 
     def test_missing_llm_client_fails_without_api_key(self):
         schedule = build_sample_schedule(with_faculty_clash=True)

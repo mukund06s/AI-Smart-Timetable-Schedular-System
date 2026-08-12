@@ -49,6 +49,53 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertIn("time", clash)
         self.assertIn("description", clash)
 
+    def test_tool_read_scheduling_gaps(self):
+        constraints = {
+            "subjects": [
+                {
+                    "name": "Calculus Tutorial",
+                    "section": "A",
+                    "type": "Tutorial",
+                    "weekly_hours": 1,
+                    "faculty": "Dr. Tutor",
+                    "assigned_room": "CR-304",
+                    "program": "BTECH_AIDS",
+                    "semester": "1",
+                }
+            ],
+            "program": "BTECH_AIDS",
+            "semester": "1",
+        }
+        self.tools.bind_context(
+            schedule=self.schedule,
+            constraints=constraints,
+            session_id="gap-test",
+        )
+        result = self.tools.execute("tool_read_scheduling_gaps", {}, self.schedule)
+        self.assertTrue(result["success"])
+        self.assertGreaterEqual(result["gap_count"], 1)
+
+    def test_tool_place_class(self):
+        schedule = build_sample_schedule()
+        self.tools.bind_context(schedule=schedule, constraints={}, session_id="place-test")
+        result = self.tools.execute(
+            "tool_place_class",
+            {
+                "school_key": "BTECH",
+                "batch_key": "Sem_2_Section_A",
+                "day": "Tuesday",
+                "slot_key": "10:00-11:00",
+                "subject": "Calculus Tutorial",
+                "faculty": "Dr. Singh",
+                "room": "LH-102",
+                "class_type": "Tutorial",
+            },
+            schedule,
+        )
+        self.assertTrue(result["success"])
+        placed = schedule["BTECH"]["Sem_2_Section_A"]["Tuesday"]["10:00-11:00"]
+        self.assertEqual(placed["subject"], "Calculus Tutorial")
+
     def test_tool_3_check_faculty_free(self):
         busy = self.tools.execute(
             "tool_check_faculty_free",
@@ -224,8 +271,10 @@ class ToolRegistryTests(unittest.TestCase):
         expected = [
             "tool_read_schedule",
             "tool_read_clashes",
+            "tool_read_scheduling_gaps",
             "tool_move_class",
             "tool_swap_classes",
+            "tool_place_class",
             "tool_check_faculty_free",
             "tool_check_room_free",
             "tool_get_free_slots",

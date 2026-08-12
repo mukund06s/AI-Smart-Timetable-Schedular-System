@@ -62,6 +62,7 @@ class TimetableAgent:
         schedule: dict,
         clashes: list,
         constraints: dict,
+        scheduling_gaps: Optional[list] = None,
         on_turn_callback: Optional[Callable[[int, Any], None]] = None,
         timetable_key: str = "",
         program: str = "",
@@ -69,12 +70,14 @@ class TimetableAgent:
     ) -> Tuple[dict, dict]:
         """
         Main entry point.
-        Given a schedule with clashes, returns a repaired schedule.
+        Given a schedule with clashes and/or incomplete subjects, returns a repaired schedule.
         Uses multi-turn LLM loop with tool-calling.
         """
+        scheduling_gaps = scheduling_gaps or []
         self.memory = AgentMemory(
             schedule=schedule,
             clashes=clashes,
+            scheduling_gaps=scheduling_gaps,
             timetable_key=timetable_key,
             program=program,
             semester=semester,
@@ -87,7 +90,7 @@ class TimetableAgent:
         )
         self._constraints = constraints
 
-        if not clashes:
+        if not clashes and not scheduling_gaps:
             self.memory.status = "completed"
             self.memory.ended_at = datetime.now(timezone.utc)
             self.memory.save_to_firebase(self.firebase)
@@ -102,6 +105,7 @@ class TimetableAgent:
         return self._run_agent_loop(
             schedule=schedule,
             clashes=clashes,
+            scheduling_gaps=scheduling_gaps,
             constraints=constraints,
             on_turn_callback=on_turn_callback,
         )
@@ -116,29 +120,39 @@ class TimetableAgent:
         """
         return build_system_prompt(constraints)
 
+    def _schedule_is_clean(self, verify_result: dict) -> bool:
+        gaps = self._execute_tool(
+            "tool_read_scheduling_gaps", {}, self.memory.current_schedule
+        )
+        return (
+            verify_result.get("clash_count", 0) == 0
+            and gaps.get("gap_count", 0) == 0
+        )
+
     def _run_agent_loop(
         self,
         schedule: dict,
         clashes: list,
+        scheduling_gaps: list,
         constraints: dict,
         on_turn_callback: Optional[Callable[[int, Any], None]] = None,
     ) -> Tuple[dict, dict]:
         """
         The core ReAct loop:
 
-        While clashes exist and turns < max_turns:
-          1. Send schedule + clashes to LLM
+        While issues remain and turns < max_turns:
+          1. Send schedule + clashes/gaps to LLM
           2. LLM responds with THOUGHT + ACTION
           3. Execute the ACTION (tool call)
           4. Get OBSERVATION (result)
           5. Send OBSERVATION back to LLM
-          6. Re-check clashes
-          7. If 0 clashes: break + return fixed schedule
+          6. Re-check clashes and scheduling gaps
+          7. If clean: break + return fixed schedule
         """
         messages: List[dict] = [
             {
                 "role": "user",
-                "content": build_initial_user_message(clashes),
+                "content": build_initial_user_message(clashes, scheduling_gaps),
             }
         ]
         self.conversation_history = list(messages)
@@ -147,7 +161,7 @@ class TimetableAgent:
             remaining = self._execute_tool(
                 "tool_verify_schedule", {}, self.memory.current_schedule
             )
-            if remaining.get("clash_count", 0) == 0:
+            if self._schedule_is_clean(remaining):
                 self.memory.status = "completed"
                 break
 
@@ -210,7 +224,7 @@ class TimetableAgent:
             remaining = self._execute_tool(
                 "tool_verify_schedule", {}, self.memory.current_schedule
             )
-            if remaining.get("clash_count", 0) == 0:
+            if self._schedule_is_clean(remaining):
                 self.memory.status = "completed"
                 break
 
@@ -218,7 +232,7 @@ class TimetableAgent:
             remaining = self._execute_tool(
                 "tool_verify_schedule", {}, self.memory.current_schedule
             )
-            if remaining.get("clash_count", 0) == 0:
+            if self._schedule_is_clean(remaining):
                 self.memory.status = "completed"
             elif self.memory.turns_taken >= self.max_turns:
                 self.memory.status = "max_turns_exceeded"

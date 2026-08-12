@@ -1,69 +1,145 @@
-import google.generativeai as genai
+"""
+Gemini wrapper using direct HTTP REST API calls.
+No external SDK needed — only 'requests' (already in requirements.txt).
+This avoids all google namespace conflicts caused by firebase-admin.
+"""
 import json
+import requests
+
+
+GEMINI_REST_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "{model}:generateContent?key={key}"
+)
+DEFAULT_MODEL = "gemini-2.5-flash"
+
 
 class GeminiAnthropicWrapper:
-    def __init__(self, api_key):
-        genai.configure(api_key=api_key)
-        self.messages = self
+    """
+    Drop-in replacement for anthropic.Anthropic() client.
+    Uses Gemini REST API directly — no SDK imports required.
+    """
 
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.messages = self  # mimic anthropic.client.messages
+
+    # ------------------------------------------------------------------
+    # Anthropic-compatible entry point
+    # ------------------------------------------------------------------
     def create(self, model, max_tokens, system, tools, messages):
-        gemini_tools = []
+        # Build Gemini function declarations from Anthropic tool schemas
+        fn_declarations = []
         for t in tools:
-            # Convert Anthropic schema to Gemini schema
-            gemini_tools.append({
-                "function_declarations": [
-                    {
-                        "name": t["name"],
-                        "description": t["description"],
-                        "parameters": {
-                            "type": "OBJECT",
-                            "properties": t["input_schema"].get("properties", {}),
-                            "required": t["input_schema"].get("required", [])
-                        }
-                    }
-                ]
+            props = t["input_schema"].get("properties", {})
+            required = t["input_schema"].get("required", [])
+            # Gemini expects simple type strings
+            gemini_props = {}
+            for k, v in props.items():
+                gemini_props[k] = {
+                    "type": v.get("type", "string").upper(),
+                    "description": v.get("description", ""),
+                }
+            fn_declarations.append({
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": gemini_props,
+                    "required": required,
+                },
             })
 
-        gen_model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=system,
-            tools=gemini_tools
-        )
+        # Convert Anthropic messages → Gemini contents
+        contents = self._convert_messages(messages)
 
-        gemini_messages = []
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": system}]
+            },
+            "tools": [{"function_declarations": fn_declarations}],
+            "contents": contents,
+            "generationConfig": {
+                "maxOutputTokens": max_tokens,
+                "temperature": 0.1,
+            },
+        }
+
+        url = GEMINI_REST_URL.format(model=DEFAULT_MODEL, key=self.api_key)
+        resp = requests.post(url, json=payload, timeout=60)
+
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"Gemini API error {resp.status_code}: {resp.text[:500]}"
+            )
+
+        return self._parse_response(resp.json())
+
+    # ------------------------------------------------------------------
+    # Message conversion
+    # ------------------------------------------------------------------
+    def _convert_messages(self, messages):
+        contents = []
         for m in messages:
             role = "user" if m["role"] == "user" else "model"
             content = m["content"]
-            
-            # Handle tool results (Anthropic format -> Gemini format)
+            parts = []
+
             if isinstance(content, list):
-                parts = []
                 for block in content:
-                    if isinstance(block, dict) and block.get("type") == "tool_result":
-                        parts.append({
-                            "functionResponse": {
-                                "name": block["tool_use_id"], # We store tool name in tool_use_id for Gemini
-                                "response": json.loads(block["content"])
-                            }
-                        })
-                    elif isinstance(block, dict) and block.get("type") == "text":
-                        parts.append({"text": block["text"]})
+                    if isinstance(block, dict):
+                        btype = block.get("type")
+                        if btype == "tool_result":
+                            try:
+                                result_data = json.loads(block.get("content", "{}"))
+                            except Exception:
+                                result_data = {"raw": block.get("content", "")}
+                            parts.append({
+                                "functionResponse": {
+                                    "name": block.get("tool_use_id", "tool"),
+                                    "response": result_data,
+                                }
+                            })
+                        elif btype == "text":
+                            parts.append({"text": block.get("text", "")})
+                        elif btype == "tool_use":
+                            parts.append({
+                                "functionCall": {
+                                    "name": block.get("name", ""),
+                                    "args": block.get("input", {}),
+                                }
+                            })
                     elif isinstance(block, str):
                         parts.append({"text": block})
-                gemini_messages.append({"role": role, "parts": parts})
+                    else:
+                        # SDK objects from previous turns
+                        t = getattr(block, "type", None)
+                        if t == "text":
+                            parts.append({"text": getattr(block, "text", "")})
+                        elif t == "tool_use":
+                            parts.append({
+                                "functionCall": {
+                                    "name": getattr(block, "name", ""),
+                                    "args": getattr(block, "input", {}),
+                                }
+                            })
             else:
-                gemini_messages.append({"role": role, "parts": [{"text": str(content)}]})
+                parts.append({"text": str(content)})
 
-        response = gen_model.generate_content(gemini_messages)
+            if parts:
+                contents.append({"role": role, "parts": parts})
 
-        # Convert Gemini response to Anthropic format
+        return contents
+
+    # ------------------------------------------------------------------
+    # Response parsing → Anthropic-style response
+    # ------------------------------------------------------------------
+    def _parse_response(self, data):
         class Block:
-            def __init__(self, type_val, text=None, name=None, id_val=None, input_val=None):
+            def __init__(self, type_val, **kwargs):
                 self.type = type_val
-                if text: self.text = text
-                if name: self.name = name
-                if id_val: self.id = id_val
-                if input_val: self.input = input_val
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
 
         class AnthropicResponse:
             def __init__(self, content, stop_reason):
@@ -72,14 +148,38 @@ class GeminiAnthropicWrapper:
 
         blocks = []
         stop_reason = "end_turn"
-        
-        if response.parts:
-            for part in response.parts:
-                if hasattr(part, "text") and part.text:
-                    blocks.append(Block("text", text=part.text))
-                elif hasattr(part, "function_call") and part.function_call:
-                    args = type(part.function_call).to_dict(part.function_call)["args"]
-                    blocks.append(Block("tool_use", name=part.function_call.name, id_val=part.function_call.name, input_val=args))
+
+        try:
+            candidates = data.get("candidates", [])
+            if not candidates:
+                return AnthropicResponse(
+                    [Block("text", text=data.get("error", {}).get("message", "No response"))],
+                    "end_turn"
+                )
+
+            parts = candidates[0].get("content", {}).get("parts", [])
+            for part in parts:
+                if "text" in part:
+                    blocks.append(Block("text", text=part["text"]))
+                elif "functionCall" in part:
+                    fc = part["functionCall"]
+                    blocks.append(Block(
+                        "tool_use",
+                        name=fc.get("name", ""),
+                        id=fc.get("name", ""),
+                        input=fc.get("args", {}),
+                    ))
                     stop_reason = "tool_use"
-        
+
+            # Check finish reason
+            finish = candidates[0].get("finishReason", "STOP")
+            if finish in ("MAX_TOKENS",):
+                stop_reason = "max_tokens"
+
+        except Exception as exc:
+            blocks = [Block("text", text=f"Parse error: {exc}")]
+
+        if not blocks:
+            blocks = [Block("text", text="")]
+
         return AnthropicResponse(blocks, stop_reason)

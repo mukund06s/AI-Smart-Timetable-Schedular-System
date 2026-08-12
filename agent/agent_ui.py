@@ -31,8 +31,15 @@ def _resolve_schedule_and_key():
     return program, semester, timetable_key, schedule
 
 
-def _build_constraints(firebase_manager, timetable_key: Optional[str]) -> dict:
-    constraints = {"subjects": st.session_state.get("subjects_data", [])}
+def _build_constraints(
+    firebase_manager, timetable_key: Optional[str], program: Optional[str], semester: Optional[int]
+) -> dict:
+    constraints = {
+        "subjects": st.session_state.get("subjects")
+        or st.session_state.get("subjects_data", []),
+        "program": program or "",
+        "semester": str(semester) if semester else "",
+    }
     if firebase_manager:
         constraints["existing_faculty_schedules"] = (
             firebase_manager.get_all_faculty_schedules(
@@ -41,10 +48,16 @@ def _build_constraints(firebase_manager, timetable_key: Optional[str]) -> dict:
         )
         constraints["existing_room_schedules"] = (
             firebase_manager.get_all_room_schedules(
-                exclude_timetable_key=timetable_key
+                exclude_timetable_key=timetable_key,
+                program_filter=program,
             )
         )
     return constraints
+
+
+def _detect_scheduling_gaps(schedule: dict, constraints: dict) -> list:
+    analyzer = ClashAnalyzer()
+    return analyzer.detect_scheduling_gaps(schedule, constraints)
 
 
 def _detect_clashes(schedule: dict, constraints: dict) -> list:
@@ -60,23 +73,30 @@ def render_repair_summary(summary: dict) -> None:
     st.markdown("#### REPAIR SUMMARY:")
     resolved = summary.get("clashes_fixed", 0)
     found = summary.get("clashes_found", 0)
+    gaps_found = summary.get("gaps_found", 0)
+    gaps_fixed = summary.get("gaps_fixed", 0)
     escalated = summary.get("escalated", 0)
     elapsed = summary.get("elapsed_seconds")
     turns = summary.get("turns_used", 0)
     session_id = summary.get("session_id", "N/A")
     max_turns = summary.get("max_turns", 10)
 
-    if summary.get("status") == "completed" and found <= resolved:
-        st.success(f"✅ {resolved}/{found or resolved} clashes resolved automatically")
+    if summary.get("status") == "completed" and found <= resolved and gaps_found <= gaps_fixed:
+        st.success(
+            f"✅ {resolved}/{found or resolved} clashes and "
+            f"{gaps_fixed}/{gaps_found or gaps_fixed} incomplete subjects resolved"
+        )
     elif summary.get("status") == "max_turns_exceeded":
         st.warning(
             f"⚠️ Agent reached max turns ({turns}/{max_turns}). "
-            f"Resolved {resolved}/{found} before fallback."
+            f"Resolved {resolved}/{found} clashes, {gaps_fixed}/{gaps_found} gaps before fallback."
         )
     elif summary.get("status") == "llm_failed":
         st.error(f"❌ LLM API failed: {summary.get('llm_error', 'unknown error')}")
     else:
-        st.warning(f"✅ {resolved}/{found} clashes resolved automatically")
+        st.warning(
+            f"✅ {resolved}/{found} clashes, {gaps_fixed}/{gaps_found} incomplete subjects resolved"
+        )
 
     if escalated:
         st.warning(f"⚠️  {escalated} clash(es) escalated (no free slot found)")
@@ -98,6 +118,8 @@ def render_repair_summary(summary: dict) -> None:
         st.info(f"💾  Session ID: {session_id}")
     if summary.get("fallback_used"):
         st.warning("⚠️ Legacy _intelligent_repair fallback was used after agent repair.")
+    if summary.get("gap_fallback_used"):
+        st.info("ℹ️ Deterministic gap repair placed missing subject sessions.")
 
 
 def render_explain_repair_section(summary: dict) -> None:
@@ -191,6 +213,7 @@ def _run_repair_with_streaming(
     genetic_algorithm,
     schedule: dict,
     clashes: list,
+    scheduling_gaps: list,
     constraints: dict,
     program: str,
     semester: Optional[int],
@@ -211,7 +234,7 @@ def _run_repair_with_streaming(
         progress_value = min(int((turn / 10) * 90), 90)
         progress_bar.progress(progress_value)
         status_placeholder.markdown(
-            f"🤖 **Agent turn {turn}/10** — analyzing clashes and applying tools..."
+            f"🤖 **Agent turn {turn}/10** — analyzing issues and applying tools..."
         )
 
     def _worker() -> None:
@@ -221,6 +244,7 @@ def _run_repair_with_streaming(
             genetic_algorithm=genetic_algorithm,
             schedule=schedule,
             clashes=clashes,
+            scheduling_gaps=scheduling_gaps,
             constraints=constraints,
             program=program,
             semester=semester,
@@ -268,15 +292,16 @@ def _run_repair_with_streaming(
 
 def render_agent_tab(firebase_manager, clash_detector_cls, genetic_algorithm=None):
     """Render the 🤖 AI Agent tab defined in the implementation blueprint."""
-    st.markdown("### 🤖 AI Agent — Autonomous Clash Repair")
+    st.markdown("### 🤖 AI Agent — Autonomous Schedule Repair")
 
     program, semester, timetable_key, schedule = _resolve_schedule_and_key()
-    constraints = _build_constraints(firebase_manager, timetable_key)
+    constraints = _build_constraints(firebase_manager, timetable_key, program, semester)
     clashes = _detect_clashes(schedule, constraints) if schedule else []
+    scheduling_gaps = _detect_scheduling_gaps(schedule, constraints) if schedule else []
     counts = categorize_clashes(clashes)
 
     st.markdown("#### Current Schedule Status:")
-    status_col1, status_col2, status_col3 = st.columns(3)
+    status_col1, status_col2, status_col3, status_col4 = st.columns(4)
     with status_col1:
         if counts["faculty"]:
             st.warning(f"⚠️  {counts['faculty']} faculty clash(es) detected")
@@ -292,6 +317,11 @@ def render_agent_tab(firebase_manager, clash_detector_cls, genetic_algorithm=Non
             st.warning(f"⚠️  {counts['cross_semester']} cross-semester clash(es)")
         else:
             st.success("✅  0 cross-semester clashes")
+    with status_col4:
+        if scheduling_gaps:
+            st.warning(f"⚠️  {len(scheduling_gaps)} incomplete subject(s)")
+        else:
+            st.success("✅  All subjects fully scheduled")
 
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     run_repair = btn_col1.button("🚀 Run Agentic Repair", use_container_width=True)
@@ -304,11 +334,19 @@ def render_agent_tab(firebase_manager, clash_detector_cls, genetic_algorithm=Non
         st.session_state["agent_show_clash_details"] = True
 
     if st.session_state.get("agent_show_clash_details"):
-        st.markdown("#### 📋 Clash Details")
+        st.markdown("#### 📋 Issue Details")
         if clashes:
+            st.markdown("**Clashes**")
             st.dataframe(pd.DataFrame(clashes), use_container_width=True, hide_index=True)
-        else:
-            st.info("No clashes detected in the current schedule.")
+        if scheduling_gaps:
+            st.markdown("**Incomplete Subjects**")
+            st.dataframe(
+                pd.DataFrame(scheduling_gaps),
+                use_container_width=True,
+                hide_index=True,
+            )
+        if not clashes and not scheduling_gaps:
+            st.info("No clashes or incomplete subjects detected in the current schedule.")
 
     log_container = st.container()
     progress_container = st.container()
@@ -317,8 +355,8 @@ def render_agent_tab(firebase_manager, clash_detector_cls, genetic_algorithm=Non
     if run_repair:
         if not schedule:
             st.error("No generated timetable found for the selected program/semester.")
-        elif not clashes:
-            st.success("✅ No clashes detected — schedule is already clean.")
+        elif not clashes and not scheduling_gaps:
+            st.success("✅ No clashes or incomplete subjects — schedule is already clean.")
         else:
             with progress_container:
                 progress_bar = st.progress(0)
@@ -331,6 +369,7 @@ def render_agent_tab(firebase_manager, clash_detector_cls, genetic_algorithm=Non
                 genetic_algorithm=genetic_algorithm,
                 schedule=schedule,
                 clashes=clashes,
+                scheduling_gaps=scheduling_gaps,
                 constraints=constraints,
                 program=program,
                 semester=semester,
@@ -348,6 +387,8 @@ def render_agent_tab(firebase_manager, clash_detector_cls, genetic_algorithm=Non
             st.session_state["last_agent_session"] = summary
             st.session_state["last_agent_log"] = summary.get("conversation_log", [])
 
+            remaining_gaps = _detect_scheduling_gaps(repaired, constraints)
+
             with summary_container:
                 render_repair_summary(summary)
                 render_explain_repair_section(summary)
@@ -355,8 +396,12 @@ def render_agent_tab(firebase_manager, clash_detector_cls, genetic_algorithm=Non
                     st.warning(
                         f"⚠️ {len(remaining)} clash(es) remain after agent + fallback repair."
                     )
-                else:
-                    st.success("✅ Clash fixed! Schedule is now clean.")
+                if remaining_gaps:
+                    st.warning(
+                        f"⚠️ {len(remaining_gaps)} incomplete subject(s) remain after repair."
+                    )
+                if not remaining and not remaining_gaps:
+                    st.success("✅ Schedule is now clean and complete.")
 
     elif st.session_state.get("last_agent_session"):
         with summary_container:

@@ -28,6 +28,16 @@ REQUIRED_FIELDS = {
     "tool_log_repair": ["action_type", "from_slot", "to_slot", "reason"],
     "tool_escalate": ["clash_description", "reason_unsolvable"],
     "tool_read_schedule": ["school_key", "batch_key"],
+    "tool_place_class": [
+        "school_key",
+        "batch_key",
+        "day",
+        "slot_key",
+        "subject",
+        "faculty",
+        "room",
+        "class_type",
+    ],
 }
 
 

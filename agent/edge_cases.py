@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 MUTATING_TOOLS = frozenset(
-    {"tool_move_class", "tool_swap_classes", "tool_apply_fix"}
+    {"tool_move_class", "tool_swap_classes", "tool_apply_fix", "tool_place_class"}
 )
 
 LOCAL_SESSION_DIR = Path("research_output") / "local_agent_sessions"

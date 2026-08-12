@@ -17,10 +17,12 @@ class AgentMemory:
         self,
         schedule: dict,
         clashes: List[dict],
+        scheduling_gaps: Optional[List[dict]] = None,
         timetable_key: str = "",
         program: str = "",
         semester: Optional[int] = None,
     ):
+        scheduling_gaps = scheduling_gaps or []
         self.session_id = str(uuid.uuid4())
         self.timetable_key = timetable_key
         self.program = program
@@ -28,11 +30,14 @@ class AgentMemory:
         self.original_schedule = copy.deepcopy(schedule)
         self.current_schedule = schedule
         self.initial_clashes = copy.deepcopy(clashes)
+        self.initial_gaps = copy.deepcopy(scheduling_gaps)
         self.repairs_applied: List[dict] = []
         self.escalations: List[dict] = []
         self.turns_taken = 0
         self.clashes_found = len(clashes)
+        self.gaps_found = len(scheduling_gaps)
         self.clashes_fixed = 0
+        self.gaps_fixed = 0
         self.conversation: List[dict] = []
         self.status = "in_progress"
         self.started_at = AgentFirebaseOps.utc_now()
@@ -67,6 +72,21 @@ class AgentMemory:
             )
             if tool_input.get("result", True):
                 self.clashes_fixed += 1
+
+        if tool_name == "tool_place_class" and result.get("success"):
+            self.gaps_fixed += 1
+            self.repairs_applied.append(
+                {
+                    "action_type": "place",
+                    "to_slot": {
+                        "day": tool_input.get("day"),
+                        "slot": tool_input.get("slot_key"),
+                        "batch_key": tool_input.get("batch_key"),
+                    },
+                    "reason": f"Placed missing {tool_input.get('subject', 'class')}",
+                    "success": True,
+                }
+            )
 
         if tool_name == "tool_escalate" and result.get("flagged"):
             self.escalations.append(
@@ -150,6 +170,8 @@ class AgentMemory:
             "status": self.status,
             "clashes_found": self.clashes_found,
             "clashes_fixed": self.clashes_fixed,
+            "gaps_found": self.gaps_found,
+            "gaps_fixed": self.gaps_fixed,
             "escalated": len(self.escalations),
             "turns_used": self.turns_taken,
             "elapsed_seconds": round(elapsed, 2),

@@ -435,6 +435,135 @@ class ClashAnalyzer:
 
         return violations
 
+    def detect_scheduling_gaps(
+        self, schedule: dict, constraints: Optional[dict] = None
+    ) -> List[dict]:
+        """
+        Find subjects with fewer scheduled sessions than required weekly_hours.
+        Returns agent-friendly gap records (not clashes, but repairable issues).
+        """
+        constraints = constraints or {}
+        subjects = constraints.get("subjects", [])
+        if not subjects or not schedule:
+            return []
+
+        program = str(constraints.get("program", "")).strip().upper()
+        semester = str(constraints.get("semester", "")).strip()
+
+        target_hours: Dict[tuple, dict] = {}
+        for subject in subjects:
+            s_prog = str(subject.get("program", "")).strip().upper()
+            s_sem = str(subject.get("semester", subject.get("year", ""))).strip()
+            if program and s_prog and s_prog != program:
+                continue
+            if semester and s_sem and s_sem != semester:
+                continue
+
+            name = str(subject.get("name", "")).strip()
+            if not name:
+                continue
+            sn = name.upper()
+            sec = str(subject.get("section", "")).strip().upper()
+            batch = str(subject.get("batch", "1")).strip().replace(".0", "").upper()
+            weekly_hours = int(subject.get("weekly_hours", 0) or 0)
+            if weekly_hours <= 0:
+                continue
+            subject_type = str(subject.get("type", "Theory")).strip()
+            is_lab = any(
+                t in subject_type.upper() for t in ["LAB", "TUTORIAL", "PRACTICAL"]
+            )
+            key = (sn, sec, batch if is_lab else "_ALL")
+            if key not in target_hours:
+                target_hours[key] = {
+                    "subject": name,
+                    "section": sec,
+                    "batch": batch if is_lab else "",
+                    "class_type": subject_type,
+                    "required": weekly_hours,
+                    "faculty": subject.get("faculty", "TBD"),
+                    "room": subject.get("assigned_room", ""),
+                    "subject_ref": subject,
+                }
+
+        scheduled_hours: Dict[tuple, int] = defaultdict(int)
+        batch_key_map: Dict[tuple, tuple] = {}
+
+        for school_key in schedule:
+            for batch_key in schedule[school_key]:
+                sec = ""
+                if "Section_" in batch_key:
+                    sec_raw = batch_key.split("Section_")[-1].strip().upper()
+                    if sec_raw.isdigit():
+                        sec = chr(64 + int(sec_raw))
+                    else:
+                        sec = sec_raw
+
+                for day in schedule[school_key][batch_key]:
+                    for slot, slot_content in schedule[school_key][batch_key][day].items():
+                        for class_info in self._extract_classes(slot_content):
+                            if not self._is_teaching_class(class_info):
+                                continue
+                            sn = str(class_info.get("subject", "")).strip().upper()
+                            class_type = str(class_info.get("type", "")).upper()
+                            is_lab = any(
+                                t in class_type for t in ["LAB", "TUTORIAL", "PRACTICAL"]
+                            )
+                            b = (
+                                str(class_info.get("batch", "1"))
+                                .strip()
+                                .replace(".0", "")
+                                .upper()
+                            )
+                            key = (sn, sec, b if is_lab else "_ALL")
+                            scheduled_hours[key] += 1
+                            batch_key_map[key] = (school_key, batch_key)
+
+        gaps: List[dict] = []
+        for key, meta in target_hours.items():
+            required = meta["required"]
+            actual = scheduled_hours.get(key, 0)
+            if actual >= required:
+                continue
+            missing = required - actual
+            school_key, batch_key = batch_key_map.get(
+                key, (next(iter(schedule), ""), f"Sem_{semester or 1}_Section_{meta['section']}")
+            )
+            if meta["section"].isdigit():
+                batch_key = f"Sem_{semester or 1}_Section_{meta['section']}"
+            elif meta["section"]:
+                batch_key = f"Sem_{semester or 1}_Section_{meta['section']}"
+                for school in schedule:
+                    for candidate in schedule[school]:
+                        if candidate.endswith(f"Section_{meta['section']}"):
+                            school_key, batch_key = school, candidate
+                            break
+
+            details = (
+                f"Section {meta['section']} missing {missing} {meta['class_type']} "
+                f"session(s) for {meta['subject']} ({actual}/{required} scheduled)"
+            )
+            gaps.append(
+                {
+                    "type": "IncompleteSchedule",
+                    "severity": "High",
+                    "subject": meta["subject"],
+                    "section": meta["section"],
+                    "school_key": school_key,
+                    "batch_key": batch_key,
+                    "class_type": meta["class_type"],
+                    "faculty": meta["faculty"],
+                    "room": meta["room"],
+                    "lab_batch": meta["batch"],
+                    "required_hours": required,
+                    "scheduled_hours": actual,
+                    "missing_hours": missing,
+                    "details": details,
+                    "description": details,
+                    "time": f"Section {meta['section']}",
+                }
+            )
+        return gaps
+
     @staticmethod
     def _extract_classes(slot_val: Any) -> List[dict]:
         if slot_val is None:

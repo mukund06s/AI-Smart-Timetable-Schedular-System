@@ -17,8 +17,10 @@ class ToolRegistry:
     TOOL_NAMES = [
         "tool_read_schedule",
         "tool_read_clashes",
+        "tool_read_scheduling_gaps",
         "tool_move_class",
         "tool_swap_classes",
+        "tool_place_class",
         "tool_check_faculty_free",
         "tool_check_room_free",
         "tool_get_free_slots",
@@ -72,6 +74,17 @@ class ToolRegistry:
             self._schema(
                 "tool_read_clashes",
                 "Get structured list of all current clashes in the schedule.",
+                {
+                    "schedule": {
+                        "type": "object",
+                        "description": "Optional schedule override. Defaults to current schedule.",
+                    }
+                },
+                required=[],
+            ),
+            self._schema(
+                "tool_read_scheduling_gaps",
+                "Get subjects with missing sessions (theory/lab/tutorial hours not fully scheduled).",
                 {
                     "schedule": {
                         "type": "object",
@@ -156,6 +169,37 @@ class ToolRegistry:
                 ],
             ),
             self._schema(
+                "tool_place_class",
+                "Place a NEW class in an empty slot (for missing theory/lab/tutorial sessions).",
+                {
+                    "school_key": {"type": "string"},
+                    "batch_key": {"type": "string"},
+                    "day": {"type": "string"},
+                    "slot_key": {"type": "string", "description": "Format: 09:00-10:00"},
+                    "subject": {"type": "string"},
+                    "faculty": {"type": "string"},
+                    "room": {"type": "string"},
+                    "class_type": {
+                        "type": "string",
+                        "description": "Theory, Lab, Tutorial, etc.",
+                    },
+                    "lab_batch": {
+                        "type": "string",
+                        "description": "Optional batch label e.g. 01 for labs/tutorials",
+                    },
+                },
+                required=[
+                    "school_key",
+                    "batch_key",
+                    "day",
+                    "slot_key",
+                    "subject",
+                    "faculty",
+                    "room",
+                    "class_type",
+                ],
+            ),
+            self._schema(
                 "tool_apply_fix",
                 "Apply a generic repair action. Supports move or swap.",
                 {
@@ -216,11 +260,13 @@ class ToolRegistry:
         handlers = {
             "tool_read_schedule": self._tool_read_schedule,
             "tool_read_clashes": self._tool_read_clashes,
+            "tool_read_scheduling_gaps": self._tool_read_scheduling_gaps,
             "tool_check_faculty_free": self._tool_check_faculty_free,
             "tool_check_room_free": self._tool_check_room_free,
             "tool_get_free_slots": self._tool_get_free_slots,
             "tool_move_class": self._tool_move_class,
             "tool_swap_classes": self._tool_swap_classes,
+            "tool_place_class": self._tool_place_class,
             "tool_apply_fix": self._tool_apply_fix,
             "tool_verify_schedule": self._tool_verify_schedule,
             "tool_log_repair": self._tool_log_repair,
@@ -277,6 +323,15 @@ class ToolRegistry:
             "success": True,
             "clash_count": len(clashes),
             "clashes": clashes,
+        }
+
+    def _tool_read_scheduling_gaps(self, args: dict) -> dict:
+        schedule = args.get("schedule") or self._schedule
+        gaps = self.analyzer.detect_scheduling_gaps(schedule, self._constraints)
+        return {
+            "success": True,
+            "gap_count": len(gaps),
+            "gaps": gaps,
         }
 
     def _tool_check_faculty_free(self, args: dict) -> dict:
@@ -389,6 +444,71 @@ class ToolRegistry:
                 f"Moved class from {from_day} {from_slot} to {to_day} {to_slot}"
             ),
             "moved_class": class_info,
+        }
+
+    def _tool_place_class(self, args: dict) -> dict:
+        school_key = args["school_key"]
+        batch_key = args["batch_key"]
+        day = args["day"]
+        slot_key = args["slot_key"]
+        faculty = args.get("faculty", "TBD")
+        room_name = args.get("room", "TBD")
+        class_type = args.get("class_type", "Theory")
+        lab_batch = args.get("lab_batch", "")
+
+        try:
+            target = self._schedule[school_key][batch_key][day][slot_key]
+        except KeyError as exc:
+            return {"success": False, "message": f"Slot not found: {exc}"}
+
+        if isinstance(target, dict) and target.get("type") in self.analyzer.SKIP_TYPES:
+            return {"success": False, "message": "Cannot place class in lunch/break slot"}
+        if self.analyzer._slot_has_teaching_class(target):
+            return {"success": False, "message": "Target slot is not empty"}
+
+        if faculty and faculty not in ("TBD", "NA"):
+            fac_check = self._tool_check_faculty_free(
+                {"faculty_name": faculty, "day": day, "slot_key": slot_key}
+            )
+            if not fac_check.get("is_free"):
+                return {
+                    "success": False,
+                    "message": f"Faculty {faculty} is not free at {day} {slot_key}",
+                }
+
+        if room_name and room_name not in self.analyzer.INVALID_ROOMS:
+            room_check = self._tool_check_room_free(
+                {
+                    "room_name": room_name,
+                    "day": day,
+                    "slot_key": slot_key,
+                    "school_key": school_key,
+                }
+            )
+            if not room_check.get("is_free"):
+                return {
+                    "success": False,
+                    "message": f"Room {room_name} is not free at {day} {slot_key}",
+                }
+
+        class_info = {
+            "subject": args["subject"],
+            "faculty": faculty,
+            "room": room_name,
+            "room_locked": bool(self._constraints.get("subjects")),
+            "type": class_type,
+            "duration": 60,
+            "start": slot_key.split("-")[0] if "-" in slot_key else "",
+            "end": slot_key.split("-")[1] if "-" in slot_key else "",
+        }
+        if lab_batch:
+            class_info["batch"] = lab_batch
+
+        self._schedule[school_key][batch_key][day][slot_key] = class_info
+        return {
+            "success": True,
+            "message": f"Placed {args['subject']} ({class_type}) at {day} {slot_key}",
+            "placed_class": class_info,
         }
 
     def _tool_swap_classes(self, args: dict) -> dict:

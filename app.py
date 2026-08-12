@@ -1495,8 +1495,29 @@ class FirebaseManager:
             st.error(f"Error fetching faculty schedules: {str(e)}")
             return {}
     
-    def get_all_room_schedules(self, exclude_timetable_key: str = None):
-        """Get all room schedules from existing timetables for optimization."""
+    @staticmethod
+    def _program_from_timetable_id(tt_id: str) -> str:
+        """Extract program code from a timetable document id, e.g. STME_BTECH_AIDS_Sem1."""
+        if not tt_id:
+            return ''
+        for prog in ('BTECH_AIDS', 'MBATECH', 'BTECH', 'BBA', 'BCOM', 'LAW'):
+            if prog in tt_id.upper():
+                return prog
+        return ''
+
+    def get_all_room_schedules(
+        self,
+        exclude_timetable_key: str = None,
+        program_filter: str = None,
+    ):
+        """Get room schedules from existing timetables for placement guards.
+
+        When ``program_filter`` is set, only timetables for that program are
+        considered.  Cross-program room blocking during generation caused Section B
+        of a second program (e.g. AIDS) to fail when Section B of another program
+        (e.g. BTECH) already used the same classroom (CR-303).  Faculty schedules
+        remain cross-program because the same teacher cannot be in two places.
+        """
         try:
             room_schedules = defaultdict(lambda: defaultdict(list))
             timetables = self.get_all_timetables()
@@ -1505,6 +1526,13 @@ class FirebaseManager:
                 tt_id = timetable.get('id', '')
                 if exclude_timetable_key and tt_id == exclude_timetable_key:
                     continue
+                if program_filter:
+                    tt_program = (
+                        timetable.get('batch_info', {}).get('program', '')
+                        or self._program_from_timetable_id(tt_id)
+                    )
+                    if tt_program.upper() != program_filter.upper():
+                        continue
                 schedule = timetable.get('schedule', {})
                 for school in schedule:
                     for batch in schedule[school]:
@@ -3504,7 +3532,8 @@ class SmartTimetableScheduler:
                     exclude_timetable_key=_excl_key
                 )
                 existing_room_schedules = self.firebase.get_all_room_schedules(
-                    exclude_timetable_key=_excl_key
+                    exclude_timetable_key=_excl_key,
+                    program_filter=program,
                 )
             
             self.morning_constraint_manager.initialize_counts(existing_faculty_schedules)
@@ -3771,7 +3800,7 @@ class SmartTimetableScheduler:
         
         with details_container:
             col1.metric("Population Size", self.genetic_algorithm.population_size)
-            col2.metric("Generations", "75")
+            col2.metric("Generations", "150")
             col3.metric("Mutation Rate", f"{self.genetic_algorithm.mutation_rate*100:.0f}%")
         
         ga_status.text("   └─ Evolving population...")
@@ -3779,7 +3808,7 @@ class SmartTimetableScheduler:
         # Run GA with progress
         optimized_schedule = self._evolve_with_progress(
             constraints, 
-            generations=75,
+            generations=150,
             ga_progress=ga_progress,
             ga_status=ga_status,
             ga_metrics_placeholder=ga_metrics,
@@ -3791,8 +3820,8 @@ class SmartTimetableScheduler:
 
         overall_progress.progress(90)
 
-        # ── PHASE 4: Agentic AI clash repair + legacy fallback ──────────────
-        status_text.info("🔍 Phase 4: Detecting clashes and running Agentic AI repair...")
+        # ── PHASE 4: Agentic AI clash + gap repair + legacy fallback ─────────
+        status_text.info("🔍 Phase 4: Detecting clashes/gaps and running Agentic AI repair...")
         clash_detector = ClashDetector(self.firebase)
         _p4_existing_fac = constraints.get('existing_faculty_schedules', {})
         _p4_existing_room = constraints.get('existing_room_schedules', {})
@@ -3801,18 +3830,24 @@ class SmartTimetableScheduler:
             existing_faculty_schedules=_p4_existing_fac,
             existing_room_schedules=_p4_existing_room,
         )
+        from utils.clash_analyzer import ClashAnalyzer as _ClashAnalyzer
+        _p4_analyzer = _ClashAnalyzer()
+        scheduling_gaps = _p4_analyzer.detect_scheduling_gaps(
+            optimized_schedule, constraints
+        )
 
         agent_log_lines = []
         agent_summary = {}
 
-        if remaining_clashes:
+        if remaining_clashes or scheduling_gaps:
             with details_container:
                 _cross_count = sum(1 for c in remaining_clashes
                                    if 'Cross-Semester' in c.get('type', ''))
                 _intra_count = len(remaining_clashes) - _cross_count
                 st.markdown(
-                    f"#### 🤖 Phase 4: Agentic Clash Repair  "
-                    f"({_intra_count} intra-schedule, {_cross_count} cross-semester)"
+                    f"#### 🤖 Phase 4: Agentic Schedule Repair  "
+                    f"({_intra_count} intra-schedule, {_cross_count} cross-semester, "
+                    f"{len(scheduling_gaps)} incomplete subject(s))"
                 )
                 agent_log_placeholder = st.empty()
                 repair_progress = st.progress(0)
@@ -3832,6 +3867,7 @@ class SmartTimetableScheduler:
                     genetic_algorithm=self.genetic_algorithm,
                     schedule=optimized_schedule,
                     clashes=remaining_clashes,
+                    scheduling_gaps=scheduling_gaps,
                     constraints=constraints,
                     program=program,
                     semester=semester,
@@ -3845,12 +3881,20 @@ class SmartTimetableScheduler:
             st.session_state['last_agent_log'] = agent_log_lines
 
             final_clash_count = len(remaining_clashes)
+            remaining_gaps = _p4_analyzer.detect_scheduling_gaps(
+                optimized_schedule, constraints
+            )
             with details_container:
                 if agent_log_lines:
                     with st.expander("🤖 Agent Repair Log", expanded=False):
                         st.markdown("\n\n".join(agent_log_lines))
-                if final_clash_count == 0:
-                    st.success("✅ Phase 4 Complete: Zero clashes!")
+                if final_clash_count == 0 and not remaining_gaps:
+                    st.success("✅ Phase 4 Complete: Zero clashes and all subjects scheduled!")
+                elif final_clash_count == 0:
+                    st.warning(
+                        f"⚠️ Phase 4: No clashes, but {len(remaining_gaps)} subject(s) "
+                        "still incomplete. Use the 🤖 AI Agent tab to retry gap repair."
+                    )
                 else:
                     st.warning(
                         f"⚠️ Phase 4: {final_clash_count} clash(es) could not be auto-resolved. "
@@ -3859,7 +3903,7 @@ class SmartTimetableScheduler:
         else:
             final_clash_count = 0
             with details_container:
-                st.success("✅ Phase 4: No clashes detected — schedule is clean!")
+                st.success("✅ Phase 4: No clashes or incomplete subjects detected!")
 
         overall_progress.progress(95)
 
@@ -3926,6 +3970,77 @@ class SmartTimetableScheduler:
                     _rep_df = _pd_rep.DataFrame(_rep_rows)[['subject','section','type','required','scheduled']]
                     _rep_df.columns = ['Subject','Section','Type','Required/Week','Scheduled']
                     st.dataframe(_rep_df, use_container_width=True, hide_index=True)
+
+                    _gap_retry = _p4_analyzer.detect_scheduling_gaps(
+                        optimized_schedule, constraints
+                    )
+                    if _gap_retry:
+                        st.info(
+                            f"🤖 Phase 5: Retrying gap repair for {len(_gap_retry)} incomplete subject(s)..."
+                        )
+                        from agent.integration import run_agentic_clash_repair as _gap_repair_fn
+                        optimized_schedule, _gap_summary, remaining_clashes, _gap_log = (
+                            _gap_repair_fn(
+                                firebase_manager=self.firebase,
+                                genetic_algorithm=self.genetic_algorithm,
+                                schedule=optimized_schedule,
+                                clashes=[],
+                                scheduling_gaps=_gap_retry,
+                                constraints=constraints,
+                                program=program,
+                                semester=semester,
+                                clash_detector=clash_detector,
+                            )
+                        )
+                        if _gap_log:
+                            with st.expander("🤖 Phase 5 Gap Repair Log", expanded=False):
+                                st.markdown("\n".join(_gap_log))
+                        _remaining_after_gap = _p4_analyzer.detect_scheduling_gaps(
+                            optimized_schedule, constraints
+                        )
+                        if not _remaining_after_gap:
+                            st.success("✅ Phase 5 gap repair completed — all subjects now scheduled!")
+                            _completion_report = []
+                            _sched_counts = _ddc(int)
+                            for _sch in optimized_schedule:
+                                for _bk in optimized_schedule[_sch]:
+                                    for _d in optimized_schedule[_sch][_bk]:
+                                        for _sk, _sc in optimized_schedule[_sch][_bk][_d].items():
+                                            _items = _sc if isinstance(_sc, list) else [_sc]
+                                            for _ci in _items:
+                                                if isinstance(_ci, dict) and _ci.get('type') not in ('LUNCH','BREAK',None):
+                                                    _nm = str(_ci.get('subject','')).strip().upper()
+                                                    _ct = str(_ci.get('type','')).upper()
+                                                    _is_lab = any(t in _ct for t in ['LAB','TUTORIAL','PRACTICAL'])
+                                                    _b = str(_ci.get('batch','1')).strip().replace('.0','').upper()
+                                                    _ckey = (_nm, _b if _is_lab else '_ALL')
+                                                    _sched_counts[_ckey] += 1
+                            _seen_keys = set()
+                            for _s in _subjects_for_check:
+                                _sn = str(_s.get('name','')).strip().upper()
+                                _sec = str(_s.get('section','')).strip().upper()
+                                _is_lab = any(t in str(_s.get('type','')).upper() for t in ['LAB','TUTORIAL','PRACTICAL'])
+                                _b = str(_s.get('batch','1')).strip().replace('.0','').upper()
+                                _ckey = (_sn, _b if _is_lab else '_ALL')
+                                if _ckey in _seen_keys:
+                                    continue
+                                _seen_keys.add(_ckey)
+                                _target = int(_s.get('weekly_hours', 0) or 0)
+                                if _target <= 0:
+                                    continue
+                                _actual = _sched_counts.get(_ckey, 0)
+                                _completion_report.append({
+                                    'subject': _s.get('name',''),
+                                    'section': _sec,
+                                    'type': _s.get('type','Theory'),
+                                    'required': _target,
+                                    'scheduled': _actual,
+                                    'ok': _actual >= _target,
+                                })
+                        else:
+                            st.warning(
+                                f"⚠️ {len(_remaining_after_gap)} subject(s) still incomplete after gap repair."
+                            )
             else:
                 st.info("ℹ️ No subject data available for count validation.")
 
@@ -4169,7 +4284,7 @@ class SmartTimetableScheduler:
         
         status_text.info("🧬 Running Genetic Algorithm optimization...")
         
-        optimized_schedule = self.genetic_algorithm.evolve(constraints, generations=75, verbose=False)
+        optimized_schedule = self.genetic_algorithm.evolve(constraints, generations=150, verbose=False)
         
         if optimized_schedule:
             self._add_lunch_and_breaks(optimized_schedule, semester_config)

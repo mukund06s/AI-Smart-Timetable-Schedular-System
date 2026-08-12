@@ -1,0 +1,61 @@
+{
+  "session_id": "6a1e70d8-fcdb-4711-b46b-70ef4ad4ec89",
+  "timetable_key": "",
+  "program": "",
+  "semester": null,
+  "started_at": "2026-08-12T06:40:02.403842+00:00",
+  "ended_at": "2026-08-12T06:40:02.404866+00:00",
+  "status": "completed",
+  "clashes_found": 1,
+  "clashes_fixed": 0,
+  "turns_used": 1,
+  "conversation_log": [
+    {
+      "turn": 1,
+      "type": "llm_response",
+      "content": [
+        {
+          "type": "tool_use",
+          "text": null,
+          "name": "tool_move_class",
+          "input": {
+            "school_key": "BTECH",
+            "batch_key": "Sem_2_Section_B",
+            "from_day": "Monday",
+            "from_slot": "09:00-10:00",
+            "to_day": "Tuesday",
+            "to_slot": "10:00-11:00"
+          }
+        }
+      ],
+      "timestamp": "2026-08-12T06:40:02.403842+00:00"
+    },
+    {
+      "turn": 1,
+      "tool": "tool_move_class",
+      "input": {
+        "school_key": "BTECH",
+        "batch_key": "Sem_2_Section_B",
+        "from_day": "Monday",
+        "from_slot": "09:00-10:00",
+        "to_day": "Tuesday",
+        "to_slot": "10:00-11:00"
+      },
+      "result": {
+        "success": true,
+        "message": "Moved class from Monday 09:00-10:00 to Tuesday 10:00-11:00",
+        "moved_class": {
+          "subject": "Chemistry",
+          "faculty": "Dr. Mehta",
+          "room": "LH-103",
+          "type": "THEORY"
+        }
+      },
+      "timestamp": "2026-08-12T06:40:02.403842+00:00"
+    }
+  ],
+  "repairs_applied": [],
+  "escalations": [],
+  "reverted_repairs": [],
+  "llm_error": null
+}

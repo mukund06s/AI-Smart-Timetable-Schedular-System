@@ -6,8 +6,10 @@ import json
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from agent.gap_repair import deterministic_gap_repair
 from agent.rate_limiter import get_rate_limiter
 from agent.timetable_agent import TimetableAgent
+from utils.clash_analyzer import ClashAnalyzer
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -52,23 +54,34 @@ def run_agentic_clash_repair(
     llm_client: Optional[Any] = None,
     on_turn_callback: Optional[Callable[[int, Any], None]] = None,
     enable_fallback: bool = True,
+    scheduling_gaps: Optional[List[dict]] = None,
 ) -> Tuple[dict, dict, List[dict], List[str]]:
     """
-    Run TimetableAgent repair, then optionally fall back to _intelligent_repair.
+    Run TimetableAgent repair for clashes and/or incomplete schedules,
+    then optionally fall back to deterministic gap repair and _intelligent_repair.
 
     Returns:
         (repaired_schedule, agent_summary, remaining_clashes, agent_log_lines)
     """
+    analyzer = ClashAnalyzer()
+    if scheduling_gaps is None:
+        scheduling_gaps = analyzer.detect_scheduling_gaps(schedule, constraints)
+
     agent_config = {}
     if firebase_manager and hasattr(firebase_manager, "get_agent_config"):
         agent_config = firebase_manager.get_agent_config()
 
     timetable_key = f"{program}_Sem{semester}" if program and semester else "unknown"
     agent_log: List[str] = []
-    summary: dict = {"status": "skipped", "clashes_found": len(clashes)}
+    summary: dict = {
+        "status": "skipped",
+        "clashes_found": len(clashes),
+        "gaps_found": len(scheduling_gaps),
+    }
 
     existing_faculty = constraints.get("existing_faculty_schedules", {})
     existing_room = constraints.get("existing_room_schedules", {})
+    has_issues = bool(clashes) or bool(scheduling_gaps)
 
     def _combined_callback(turn: int, response: Any) -> None:
         agent_log.extend(format_turn_log_entry(turn, response))
@@ -76,7 +89,7 @@ def run_agentic_clash_repair(
             on_turn_callback(turn, response)
 
     agent_enabled = agent_config.get("enabled", True)
-    if agent_enabled and clashes:
+    if agent_enabled and has_issues:
         rate_key = timetable_key or "default"
         allowed, rate_message = get_rate_limiter().allow(rate_key)
         if not allowed:
@@ -85,7 +98,9 @@ def run_agentic_clash_repair(
             summary = {
                 "status": "rate_limited",
                 "clashes_found": len(clashes),
+                "gaps_found": len(scheduling_gaps),
                 "clashes_fixed": 0,
+                "gaps_fixed": 0,
                 "rate_limit_message": rate_message,
             }
         else:
@@ -98,28 +113,56 @@ def run_agentic_clash_repair(
             schedule, summary = agent.repair_schedule(
                 schedule=schedule,
                 clashes=clashes,
+                scheduling_gaps=scheduling_gaps,
                 constraints=constraints,
                 on_turn_callback=_combined_callback,
                 timetable_key=timetable_key,
                 program=program or "",
                 semester=semester,
             )
+            summary.setdefault("gaps_found", len(scheduling_gaps))
+    elif not has_issues:
+        summary = {
+            "status": "completed",
+            "clashes_found": 0,
+            "gaps_found": 0,
+            "clashes_fixed": 0,
+            "gaps_fixed": 0,
+        }
 
     remaining_clashes = clash_detector.detect_all_clashes(
         schedule,
         existing_faculty_schedules=existing_faculty,
         existing_room_schedules=existing_room,
     )
+    remaining_gaps = analyzer.detect_scheduling_gaps(schedule, constraints)
 
-    should_fallback = (
+    should_gap_fallback = (
+        enable_fallback
+        and bool(remaining_gaps)
+        and agent_config.get("fallback_to_random_repair", True)
+    )
+    if should_gap_fallback:
+        agent_log.append(
+            f"⚠️ Fallback: placing {len(remaining_gaps)} incomplete subject(s)..."
+        )
+        placed = deterministic_gap_repair(schedule, constraints, remaining_gaps)
+        summary["gap_fallback_used"] = True
+        summary["gaps_fixed"] = summary.get("gaps_fixed", 0) + placed
+        agent_log.append(f"   └─ Gap fallback placed {placed} session(s)")
+        remaining_gaps = analyzer.detect_scheduling_gaps(schedule, constraints)
+        if not remaining_gaps and not remaining_clashes:
+            summary["status"] = "completed"
+
+    should_clash_fallback = (
         enable_fallback
         and bool(remaining_clashes)
         and agent_config.get("fallback_to_random_repair", True)
     )
     if not agent_enabled:
-        should_fallback = bool(remaining_clashes)
+        should_clash_fallback = bool(remaining_clashes)
     elif summary.get("status") == "completed" and not remaining_clashes:
-        should_fallback = False
+        should_clash_fallback = False
     elif summary.get("status") in (
         "failed",
         "partial",
@@ -127,7 +170,7 @@ def run_agentic_clash_repair(
         "llm_failed",
         "rate_limited",
     ) and remaining_clashes:
-        should_fallback = True
+        should_clash_fallback = True
 
     if summary.get("status") == "max_turns_exceeded":
         agent_log.append(
@@ -155,7 +198,7 @@ def run_agentic_clash_repair(
             f"{summary['local_backup_path']}"
         )
 
-    if should_fallback and remaining_clashes and genetic_algorithm:
+    if should_clash_fallback and remaining_clashes and genetic_algorithm:
         agent_status = summary.get("status")
         summary["agent_status_before_fallback"] = agent_status
         agent_log.append(
@@ -174,7 +217,7 @@ def run_agentic_clash_repair(
                 )
                 break
         summary["fallback_used"] = True
-        if not remaining_clashes:
+        if not remaining_clashes and not remaining_gaps:
             summary["status"] = "completed"
         elif agent_status in ("llm_failed", "max_turns_exceeded"):
             summary["status"] = agent_status
@@ -182,6 +225,7 @@ def run_agentic_clash_repair(
             summary["status"] = "partial"
 
     summary["remaining_clashes"] = len(remaining_clashes)
+    summary["remaining_gaps"] = len(remaining_gaps)
     return schedule, summary, remaining_clashes, agent_log
 
 
